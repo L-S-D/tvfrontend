@@ -11,11 +11,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Developer mode: ares-install recreates the app folder owned by root, the
- * app (own uid) then cannot create a file there. /media/developer/temp
- * is writable for everyone, lies inside the app's jail and survives
- * reinstalling. */
+/* The settings file lives in /media/developer/temp: it is writable for everyone,
+ * lies inside the app's jail and survives reinstalling. The app folder is no
+ * place for it: ares-install replaces that folder (and on some TVs the app
+ * cannot even create a file there). */
+#ifndef DATA_DIR
 #define DATA_DIR "/media/developer/temp/com.lsd.tvf"
+#endif
 
 static cJSON *g_root;
 static char g_path[512];
@@ -53,12 +55,9 @@ static cJSON *read_json(const char *path, int *exists) {
 }
 
 void prefs_init(const char *app_dir) {
-    int data_dir = 0;
-    if (!try_dir(getenv("HOME")) && !try_dir(app_dir)) {
-        if (mkdir(DATA_DIR, 0700) != 0 && errno != EEXIST) mt_log("[prefs] %s: %s", DATA_DIR, strerror(errno));
-        data_dir = try_dir(DATA_DIR);
-        if (!data_dir && !try_dir("/tmp")) g_path[0] = 0;
-    }
+    if (mkdir(DATA_DIR, 0700) != 0 && errno != EEXIST) mt_log("[prefs] %s: %s", DATA_DIR, strerror(errno));
+    int data_dir = try_dir(DATA_DIR);
+    if (!data_dir && !try_dir(getenv("HOME")) && !try_dir(app_dir) && !try_dir("/tmp")) g_path[0] = 0;
     mt_log("[prefs] file %s (HOME=%s)", g_path[0] ? g_path : "NONE", getenv("HOME") ? getenv("HOME") : "-");
     int exists = 0;
     g_root = read_json(g_path, &exists);
@@ -71,8 +70,8 @@ void prefs_init(const char *app_dir) {
         mt_log("[prefs] %s unreadable - %s %s", g_path, r == 0 ? "moved to" : "could not move to", bad);
     }
     if (!g_root && data_dir) {
-        /* first start after the move: take over the file from the app folder
-         * (it is still readable, just no longer replaceable) */
+        /* first start with this location: take over the file of the older
+         * versions from the app folder (if a reinstall has not removed it) */
         char old[512];
         snprintf(old, sizeof(old), "%s/tvf-prefs.json", getenv("HOME") ? getenv("HOME") : app_dir);
         int old_exists = 0;
@@ -80,6 +79,7 @@ void prefs_init(const char *app_dir) {
         if (cJSON_IsObject(g_root)) {
             mt_log("[prefs] migrated from %s", old);
             prefs_set("prefs.moved", cJSON_CreateTrue()); /* writes the new file */
+            if (access(g_path, R_OK) == 0) unlink(old); /* credentials only in one place */
         }
     }
     if (!cJSON_IsObject(g_root)) {
