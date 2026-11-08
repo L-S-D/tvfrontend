@@ -22,6 +22,7 @@
 #include "fetch.h"
 #include "hbbtv.h"
 #include "egress.h"
+#include "htsp.h"
 #include "hbbdrm.h"
 #include "hbbmedia.h"
 #include "webmedia.h"
@@ -1757,6 +1758,7 @@ int main(int argc, char *argv[]) {
     if (!cJSON_IsObject(params)) params = launch;
     if (*jstr(params, "log")) mt_log_udp(jstr(params, "log"));
     int debug_port = atoi(jstr(params, "debug"));
+    if (*jstr(params, "htspQueue")) htsp_set_queue_depth(atoi(jstr(params, "htspQueue"))); /* test: bytes, 0 = tvh default */
     if (!debug_port && cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(params, "debug")))
         debug_port = (int) jnum(params, "debug");
     char *pjson = params ? cJSON_PrintUnformatted(params) : NULL;

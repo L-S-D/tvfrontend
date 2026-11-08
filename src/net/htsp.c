@@ -22,6 +22,11 @@
 #define SUB_QUEUE_MAX (8u << 20) /* a subscription may run this far ahead, then the reader thread waits */
 #define RCVBUF (1 << 20)         /* start burst of a subscription from the keyframe without congestion */
 #define SEQ_ROUTES 32
+#define HTSP_QUEUE_DEPTH (16 << 20) /* tvh queueDepth (bytes) of a subscription, about 6 s of UHD */
+
+static int g_queue_depth = HTSP_QUEUE_DEPTH;
+
+void htsp_set_queue_depth(int bytes) { g_queue_depth = bytes; }
 
 static htsp_cfg cfg;
 static pthread_mutex_t wmu = PTHREAD_MUTEX_INITIALIZER; /* writing, fd, seq, gen */
@@ -487,6 +492,10 @@ htsp_sub *htsp_sub_open(uint32_t channel, int timeshift_s, const char *profile, 
     hmsg_s64(&m, "channelId", (int64_t) channel);
     hmsg_s64(&m, "90khz", 1);
     if (timeshift_s > 0) hmsg_s64(&m, "timeshiftPeriod", timeshift_s);
+    /* tvh drops B and P frames once more than this many bytes wait in its queue for
+     * us (default 500 kB: a fifth of a second of UHD; a source that delivers in bursts
+     * overflows that every time) */
+    if (g_queue_depth > 0) hmsg_s64(&m, "queueDepth", g_queue_depth);
     if (profile && profile[0]) hmsg_str(&m, "profile", profile);
     hmsg_s64(&m, "seq", seq);
     int r = send_msg(fd, &m);

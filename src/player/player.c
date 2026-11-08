@@ -198,6 +198,7 @@ struct player {
     uint64_t last_stats_frames31;
     int64_t last_frame_pts, last_frame_at;
     int64_t resumed_at; /* last resumed from pause (picture watchdog) */
+    int q_bdrops, q_pdrops, q_idrops; /* tvh queueStatus: dropped frames so far (log on change) */
     /* HTSP timeshift (tvh): requested/granted (s), state according to timeshiftStatus
      * (90 kHz, under lock); commands go to the subscription as htsp_sub_cmd */
     int htsp_ts_want, htsp_ts_granted;
@@ -962,6 +963,17 @@ static void htsp_status_msg(player *b, unsigned long chid, const char *method, c
                cjs(j, "subscriptionError")[0] ? " / " : "", cjs(j, "subscriptionError"));
     else if (!strcmp(method, "subscriptionGrace"))
         mt_log("[htsp] subscriptionGrace %.0f s", cjn(j, "graceTimeout", 0));
+    else if (!strcmp(method, "queueStatus")) {
+        /* frames tvh dropped because we were too slow (B, P, I; running counters) */
+        int bd = (int) cjn(j, "Bdrops", 0), pd = (int) cjn(j, "Pdrops", 0), id = (int) cjn(j, "Idrops", 0);
+        if (bd != b->q_bdrops || pd != b->q_pdrops || id != b->q_idrops) {
+            mt_log("[htsp] tvh dropped frames: B %d P %d I %d (queued %.0f kB, delay %.0f ms)", bd, pd, id,
+                   cjn(j, "bytes", 0) / 1024.0, cjn(j, "delay", 0) / 1000.0);
+            b->q_bdrops = bd;
+            b->q_pdrops = pd;
+            b->q_idrops = id;
+        }
+    }
     cJSON_Delete(j);
 }
 

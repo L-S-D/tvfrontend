@@ -48,6 +48,8 @@ typedef struct htsp_sub htsp_sub;
 /* subscribe to a channel (90 kHz, optional timeshift in s and profile); *id = the
  * subscriptionId. NULL = not connected */
 htsp_sub *htsp_sub_open(uint32_t channel, int timeshift_s, const char *profile, int *id);
+/* queueDepth (bytes) asked of tvh for each subscription; 0 = tvh's default (for tests) */
+void htsp_set_queue_depth(int bytes);
 /* next message of the subscription (body without length field, malloc) or NULL:
  * timed out (timeout_ms, < 0 = no timeout), or *gone = connection lost or
  * htsp_sub_cancel. Only the owner of the subscription */
