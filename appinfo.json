@@ -1,0 +1,15 @@
+{
+    "id": "com.lsd.tvf",
+    "version": "0.1.0",
+    "vendor": "TVF",
+    "type": "native",
+    "main": "tvf",
+    "title": "TVF",
+    "icon": "icon.png",
+    "largeIcon": "largeIcon.png",
+    "nativeLifeCycleInterfaceVersion": 2,
+    "resolution": "1920x1080",
+    "transparent": true,
+    "appDescription": "TV Frontend",
+    "iconColor": "#121A46"
+}

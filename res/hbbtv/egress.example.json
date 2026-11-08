@@ -1,0 +1,25 @@
+{
+ "_doc": "Example: send the HbbTV requests of a channel or host through a proxy. Save as res/hbbtv/egress.local.json and adapt; package.sh packs it instead of egress.json.",
+ "egress": {
+  "P1": "http://{host}:3128",
+  "P2": "http://proxy.example.org:8080"
+ },
+ "overrides": [
+  [
+   "portal.example.net",
+   "direct"
+  ]
+ ],
+ "channels": [
+  [
+   "^Example ?TV( HD)?$",
+   "P1"
+  ]
+ ],
+ "routes": [
+  [
+   "*.example.com",
+   "P2"
+  ]
+ ]
+}

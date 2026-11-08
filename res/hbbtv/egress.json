@@ -1,0 +1,7 @@
+{
+ "_doc": "Egress per HbbTV channel and target host (TVF, egress.c). Order: overrides (host) > channels (channel name, case-insensitive regular expression, first match) > routes (host) > direct. Egress: a name from egress, \"direct\" or a proxy URL; {host} = tvh server. This default is empty (everything direct); your own rules go in res/hbbtv/egress.local.json (not in the repo, package.sh packs it instead of this file), for the structure see egress.example.json.",
+ "egress": {},
+ "overrides": [],
+ "channels": [],
+ "routes": []
+}

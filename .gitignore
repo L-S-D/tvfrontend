@@ -1,0 +1,10 @@
+build/
+pkg/
+pkg-web/
+*.ipk
+local.env
+res/hbbtv/egress.local.json
+tools/uitest/build/
+tools/uitest/shots/
+tools/uitest/*.json
+__pycache__/

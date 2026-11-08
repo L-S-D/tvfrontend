@@ -1,0 +1,9 @@
+{
+ "_doc": "Rewrite the entry point per HbbTV app before TVF loads the address from the AIT (hbbtv.c, hbbweb.c): [regular expression (POSIX ERE), replacement with $1..$9], the first match wins, the rest of the address stays. SRF: the entry page detects the device by its User-Agent; jumping directly into the app selects the player (pb=10: DASH and HLS).",
+ "rewrites": [
+  [
+   "^https?://hbb\\.swisstxt\\.ch/index\\.html\\?([^#]*)",
+   "https://hbb.swisstxt.ch/app.html?$1&pb=10"
+  ]
+ ]
+}

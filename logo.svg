@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs><linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1D2B70"/><stop offset="1" stop-color="#07091C"/></linearGradient><radialGradient id="shine" cx="0.22" cy="0.1" r="0.85"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient><linearGradient id="neon" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22D3EE"/><stop offset="0.55" stop-color="#8B5CF6"/><stop offset="1" stop-color="#EC4899"/></linearGradient><filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter></defs>
+  <rect width="512" height="512" rx="112" fill="url(#dark)"/>
+  <rect width="512" height="512" rx="112" fill="url(#shine)"/>
+  <g stroke="url(#neon)" stroke-width="18" stroke-linecap="round" fill="none" filter="url(#glow)" opacity="0.9"><line x1="256" y1="158" x2="190" y2="74"/><line x1="256" y1="158" x2="322" y2="74"/><rect x="72" y="150" width="368" height="256" rx="46"/></g>
+  <g stroke="url(#neon)" stroke-width="18" stroke-linecap="round" fill="none"><line x1="256" y1="158" x2="190" y2="74"/><line x1="256" y1="158" x2="322" y2="74"/><rect x="72" y="150" width="368" height="256" rx="46"/></g>
+  <g fill="url(#neon)"><circle cx="190" cy="74" r="14"/><circle cx="322" cy="74" r="14"/><rect x="150" y="402" width="46" height="28" rx="10"/><rect x="316" y="402" width="46" height="28" rx="10"/></g>
+  <text x="256" y="303" text-anchor="middle" font-family="Lato" font-weight="900" font-size="72" letter-spacing="-1" fill="#FFFFFF" filter="url(#glow)" opacity="0.7">Frontend</text>
+  <text x="256" y="303" text-anchor="middle" font-family="Lato" font-weight="900" font-size="72" letter-spacing="-1" fill="#FFFFFF">Frontend</text>
+</svg>
