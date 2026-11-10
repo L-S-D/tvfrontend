@@ -275,10 +275,73 @@ static void apply_audio_pref(int ch) {
                           cJSON_IsString(c) ? c->valuestring : NULL);
 }
 
-/* Yellow selection: first the audio tracks (from two on), then "Subtitles off" and the
- * channel's subtitles (like audio.openMenu of the HTML5 app) */
+/* Sound offset to the picture (like the subtitle offset): + = sound later,
+ * remembered per channel, without its own value the last one set applies.
+ * Adjusted with Left/Right (25 ms), OK/Back done; stored when done (the
+ * settings file is written with fsync: not with every key). Recordings: channel 0 */
+#define AOFF_STEP 25
+#define AOFF_MAX 2000
+static int aoff_ms, aoff_channel, aoff_adjusting, aoff_dirty;
+
+/* the offset of the channel and as the last one set; clear: remove both */
+static void aoff_store(int ch, int ms, int clear) {
+    char key[40];
+    snprintf(key, sizeof(key), "audio.offset.%d", ch);
+    prefs_set(key, clear ? NULL : cJSON_CreateNumber(ms));
+    prefs_set("audio.offset", clear ? NULL : cJSON_CreateNumber(ms));
+}
+
+static void aoff_done(void) {
+    if (aoff_dirty) aoff_store(aoff_channel, aoff_ms, 0);
+    aoff_dirty = 0;
+    if (aoff_adjusting) {
+        aoff_adjusting = 0;
+        osd_message(NULL, 0, 0);
+    }
+}
+
+static void aoff_load(int ch) {
+    aoff_done();
+    char key[40];
+    snprintf(key, sizeof(key), "audio.offset.%d", ch);
+    const cJSON *v = prefs_get(key);
+    if (!cJSON_IsNumber(v)) v = prefs_get("audio.offset");
+    aoff_channel = ch;
+    aoff_ms = cJSON_IsNumber(v) ? v->valueint : 0;
+    player_set_audio_offset(app.pl, aoff_ms);
+}
+
+static void aoff_label(char *out, size_t n) {
+    int a = aoff_ms < 0 ? -aoff_ms : aoff_ms;
+    snprintf(out, n, "%s%d ms", aoff_ms > 0 ? "+" : aoff_ms < 0 ? "\xE2\x88\x92" : "\xC2\xB1", a);
+}
+
+static void aoff_show(void) {
+    char l[32], t[160];
+    aoff_label(l, sizeof(l));
+    snprintf(t, sizeof(t), _("Audio offset %s     Left earlier \xC2\xB7 Right later \xC2\xB7 OK done"), l);
+    osd_message(t, 0, 0);
+}
+
+static int aoff_key(int key) {
+    if (key == KEY_LEFT || key == KEY_RIGHT) {
+        aoff_ms += key == KEY_RIGHT ? AOFF_STEP : -AOFF_STEP;
+        if (aoff_ms > AOFF_MAX) aoff_ms = AOFF_MAX;
+        if (aoff_ms < -AOFF_MAX) aoff_ms = -AOFF_MAX;
+        aoff_dirty = 1;
+        player_set_audio_offset(app.pl, aoff_ms);
+        aoff_show();
+    } else if (key == KEY_OK || key == KEY_BACK) {
+        aoff_done();
+    }
+    return 1;
+}
+
+/* Yellow selection: first the audio tracks (from two on) and the sound offset,
+ * then "Subtitles off" and the channel's subtitles (like audio.openMenu of the
+ * HTML5 app) */
 static subs_option menu_subs[SUBS_MAX];
-static int menu_nsubs, menu_naudio_shown, menu_offset_idx = -1;
+static int menu_nsubs, menu_naudio_shown, menu_offset_idx = -1, menu_aoff_idx = -1, menu_subs_base;
 
 static void on_audio_pick(void *user, int i) {
     (void) user;
@@ -286,8 +349,13 @@ static void on_audio_pick(void *user, int i) {
         subs_adjust_start();
         return;
     }
-    if (i >= menu_naudio_shown) { /* subtitles */
-        int k = i - menu_naudio_shown;
+    if (i == menu_aoff_idx) {
+        aoff_adjusting = 1;
+        aoff_show();
+        return;
+    }
+    if (i >= menu_subs_base) { /* subtitles */
+        int k = i - menu_subs_base;
         if (k == 0) {
             subs_choose(NULL);
             osd_message(_("Subtitles off"), 3000, 0);
@@ -362,8 +430,8 @@ static void open_audio_menu(void) {
     app.menu_ntracks = player_audio_tracks(app.pl, app.menu_tracks, PLAYER_MAX_TRACKS, &app.menu_cur);
     int cur_sub = -1;
     menu_nsubs = recplay_active() ? 0 : subs_options(menu_subs, SUBS_MAX, &cur_sub);
-    if (app.menu_ntracks < 2 && !menu_nsubs) {
-        osd_message(app.menu_ntracks ? _("Only one audio track, no subtitles") : _("No audio tracks"), 3000, 0);
+    if (!app.menu_ntracks && !menu_nsubs) {
+        osd_message(_("No audio tracks"), 3000, 0);
         return;
     }
     char labels[PLAYER_MAX_TRACKS + SUBS_MAX + 2][96];
@@ -375,6 +443,14 @@ static void open_audio_menu(void) {
         track_label(app.menu_tracks, app.menu_ntracks, i, labels[n], sizeof(labels[n]));
         marks[n] = i == app.menu_cur;
     }
+    menu_aoff_idx = -1;
+    if (app.menu_ntracks) {
+        char ol[32];
+        aoff_label(ol, sizeof(ol));
+        snprintf(labels[n], sizeof(labels[n]), _("Audio offset: %s"), ol);
+        menu_aoff_idx = n++;
+    }
+    menu_subs_base = n;
     menu_offset_idx = -1;
     if (menu_nsubs) {
         snprintf(labels[n], sizeof(labels[n]), "%s", _("Subtitles off"));
@@ -393,8 +469,8 @@ static void open_audio_menu(void) {
     for (int i = 0; i < n; i++) lp[i] = labels[i];
     osd_hide();
     int sel = menu_naudio_shown && app.menu_cur >= 0 ? app.menu_cur : 0;
-    choice_open_multi(menu_naudio_shown ? (menu_nsubs ? _("Audio / subtitles") : _("Audio track")) : _("Subtitles"), lp, n, marks,
-                      sel, on_audio_pick, NULL);
+    choice_open_multi(app.menu_ntracks ? (menu_nsubs ? _("Audio / subtitles") : _("Audio track")) : _("Subtitles"), lp, n,
+                      marks, sel, on_audio_pick, NULL);
 }
 
 /* ---------------- Hint while the live stream is not running ---------------- */
@@ -562,6 +638,7 @@ static void on_play(const tvsrc_play_info *p) {
     sidedata_reset();
     ttx_set_source(side_local);
     subs_set_source(side_local, ch);
+    if (ch != aoff_channel) aoff_load(ch);
     tshift_on_play(url, app.timeshift);
     app.now_stop = now->stop;
     app.nn_requested = 0;
@@ -626,6 +703,7 @@ static void app_play_recording(cJSON *item) {
     hbbweb_close("recording");
     tshift_stop();
     subs_set_source(0, 0);
+    aoff_load(0);
     ttx_set_source(0);
     epg_close();
     recbrowser_close();
@@ -828,7 +906,7 @@ static void open_info(void) {
 }
 
 static int tvf_overlay(void) {
-    return settings_visible() || subs_adjusting() || choice_visible() || ttx_visible() || recdlg_visible() || recbrowser_visible() ||
+    return settings_visible() || subs_adjusting() || aoff_adjusting || choice_visible() || ttx_visible() || recdlg_visible() || recbrowser_visible() ||
            epg_visible() || info_visible();
 }
 
@@ -839,6 +917,7 @@ static void on_key(int key) {
     }
     if (!app.key_to_tvf && !tvf_overlay() && hbbweb_active() && hbbweb_key(key)) return;
     if (subs_adjusting() && subs_adjust_key(key)) return;
+    if (aoff_adjusting && aoff_key(key)) return;
     if (choice_visible() && choice_key(key)) return;
     if (ttx_visible() && ttx_key(key)) return;
     if (recdlg_visible() && recdlg_key(key)) return;
@@ -1064,7 +1143,7 @@ static void hbb_closed(void) {
  * (like LG's own live TV) */
 /* pointer to the topmost open view */
 static void on_pointer(int ev, int x, int y) {
-    if (subs_adjusting() || ttx_visible()) return;
+    if (subs_adjusting() || aoff_adjusting || ttx_visible()) return;
     if (settings_visible()) settings_pointer(ev, x, y);
     else if (choice_visible()) choice_pointer(ev, x, y);
     else if (recdlg_visible()) recdlg_pointer(ev, x, y);
@@ -1097,7 +1176,9 @@ static void pointer_visible(int vis) {
 
 static void on_wheel(int dir) {
     int key = dir > 0 ? KEY_UP : KEY_DOWN;
-    if (settings_visible()) settings_wheel(dir);
+    if (aoff_adjusting) aoff_key(dir > 0 ? KEY_RIGHT : KEY_LEFT); /* offsets: up = later */
+    else if (subs_adjusting()) subs_adjust_key(dir > 0 ? KEY_RIGHT : KEY_LEFT);
+    else if (settings_visible()) settings_wheel(dir);
     else if (choice_visible()) choice_key(key);
     else if (ttx_visible()) ttx_key(key); /* Up = next page */
     else if (recdlg_visible()) recdlg_key(key);
@@ -1466,6 +1547,17 @@ static void on_debug(const char *c) {
         if (c[4] >= '0' && c[4] <= '9' && !c[5]) on_key(KEY_DIGIT0 + (c[4] - '0'));
     } else if (!strncmp(c, "SHOT ", 5)) {
         ui_screenshot_send(c + 5);
+    } else if (!strncmp(c, "AOFF ", 5)) { /* AOFF <ms|clear> [channel]: sound offset (test, cleanup) */
+        char v[16] = "";
+        int ch = aoff_channel;
+        sscanf(c + 5, "%15s %d", v, &ch);
+        int clear = !strcmp(v, "clear");
+        aoff_store(ch, atoi(v), clear);
+        if (ch == aoff_channel) {
+            aoff_dirty = 0;
+            aoff_load(ch);
+        }
+        mt_log("[app] audio offset of channel %d: %s", ch, clear ? "removed (and the last one set)" : v);
     } else if (!strcmp(c, "TVON")) { /* test: as if the TV had just been switched on (Kore rule) */
         kore_tv_on_test();
     } else if (!strncmp(c, "PTR ", 4)) { /* PTR MOVE|DOWN|UP x y */

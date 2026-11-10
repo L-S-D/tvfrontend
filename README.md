@@ -127,7 +127,7 @@ Optional settings (default server, build options, HbbTV network rules) are descr
 | ← / → | Timeshift: 30 s back / forward (pauses live TV) |
 | Red | HbbTV |
 | Green | Recordings; **hold** for the settings |
-| Yellow | Audio track and subtitles |
+| Yellow | Audio track, sound offset and subtitles |
 | Blue | Teletext |
 
 In the programme guide **click a programme with the pointer** to record it (or to cancel a timer).

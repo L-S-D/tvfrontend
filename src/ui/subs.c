@@ -30,7 +30,7 @@ static int dvb_pid, dvb_page;
 static cJSON *events; /* array, oldest first */
 static long next_seq;
 static uint32_t t_poll, t_draw;
-static int offset_ms, adjusting;
+static int offset_ms, adjusting, offset_dirty; /* dirty: changed, stored when adjusting ends */
 static int poll_busy;
 static double epoch = -1;  /* time base of the events (local), change = discard */
 
@@ -388,16 +388,24 @@ static void save_offset(void) {
     prefs_set("subs.offset", cJSON_CreateNumber(offset_ms));
 }
 
+/* adjusting ends: the offset into the settings file (written with fsync - not
+ * with every key) */
+static void adjust_done(void) {
+    if (offset_dirty) save_offset();
+    offset_dirty = 0;
+    if (adjusting) {
+        adjusting = 0;
+        osd_message(NULL, 0, 0);
+    }
+}
+
 void subs_set_source(int local, int ch) {
+    adjust_done(); /* still for the old channel */
     stop();
     gen++;
     nopts = 0;
     lists_pending = 0;
     channel = ch;
-    if (adjusting) {
-        adjusting = 0;
-        osd_message(NULL, 0, 0);
-    }
     load_offset();
     pre[0] = 0;
     if (!local) return;
@@ -458,12 +466,11 @@ int subs_adjust_key(int key) {
     if (!adjusting) return 0;
     if (key == KEY_LEFT || key == KEY_RIGHT) {
         offset_ms += key == KEY_RIGHT ? 25 : -25;
-        save_offset();
+        offset_dirty = 1;
         shown_seq = -2; /* re-evaluate the DVB image */
         show_adjust();
     } else if (key == KEY_OK || key == KEY_BACK) {
-        adjusting = 0;
-        osd_message(NULL, 0, 0);
+        adjust_done();
     }
     return 1;
 }

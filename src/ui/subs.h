@@ -44,7 +44,7 @@ int subs_enabled(void);
 
 /* offset to the picture (like the HTML5 app): + = subtitles later, remembered
  * per channel, without its own value the last one set applies. Adjust with
- * Left/Right (25 ms), OK/Back done. */
+ * Left/Right (25 ms), OK/Back done; stored when done (or at a channel change). */
 void subs_offset_label(char *out, size_t n);
 void subs_adjust_start(void);
 int subs_adjusting(void);

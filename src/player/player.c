@@ -182,7 +182,7 @@ struct player {
     mpa_pcm *mpa;
     qitem *qhead, *qtail;
     size_t qbytes;
-    int64_t last_vpts_ns, last_apts_ns, last_fed_vpts_ns;
+    int64_t last_vpts_ns, last_apts_ns, last_fed_vpts_ns, last_fed_apts_ns;
 
     /* timestamps of a session (ns since session start = app start or zap key) */
     int64_t s0, t_http, t_first_byte, t_pmt, t_key, t_load_call, t_load_ret, t_loadcompleted, t_playing,
@@ -209,6 +209,7 @@ struct player {
     player_side side;      /* teletext/subtitles of the HTSP subscription */
     uint64_t side_bits;    /* stream indexes (< 64) of the side streams */
     int64_t vdrop_until; /* Test (debug VDROP): discard video until then */
+    int audio_offset_ms; /* atomic: sound offset to the picture, + = later */
     volatile int test_cut_fail; /* Test (debug CUT): make this many new requests fail */
     uint64_t last_stats_bytes, last_stats_frames;
     int64_t last_stats_at;
@@ -423,6 +424,7 @@ static int feed(player *b, const uint8_t *data, size_t len, int64_t pts_ns, int 
             } else {
                 b->a_fed++;
                 b->a_bytes += len;
+                b->last_fed_apts_ns = pts_ns;
                 if (b->a_fed <= 2)
                     mt_log("[player] audio #%llu fed: %zu bytes pts=%.3fs", (unsigned long long) b->a_fed, len,
                            pts_ns / 1e9);
@@ -472,6 +474,7 @@ static void feed_video(player *b, const uint8_t *data, size_t len, int64_t pts90
 }
 
 static void feed_audio_ns(player *b, const uint8_t *data, size_t len, int64_t ns) {
+    ns += (int64_t) __atomic_load_n(&b->audio_offset_ms, __ATOMIC_RELAXED) * NS_PER_MS;
     if (ns < b->ptd_ns) { /* audio before the first frame: discard, otherwise it runs ahead */
         b->a_drop_early++;
         return;
@@ -1006,7 +1009,7 @@ static void decode_restart(player *b) {
     b->state = ST_WAIT_KEY;
     b->base90 = 0;
     b->ptd_ns = 0;
-    b->last_vpts_ns = b->last_apts_ns = b->last_fed_vpts_ns = 0;
+    b->last_vpts_ns = b->last_apts_ns = b->last_fed_vpts_ns = b->last_fed_apts_ns = 0;
     b->v_fed = b->a_fed = b->v_drop_prekey = b->a_drop_early = 0;
     b->s0 = t; /* time the restart like a zap */
     b->t_key = b->t_load_call = b->t_load_ret = b->t_loadcompleted = b->t_playing = b->t_first_frame = 0;
@@ -1447,7 +1450,7 @@ static void reset_session(player *b) {
     memset(&b->ainfo, 0, sizeof(b->ainfo));
     b->base90 = 0;
     b->ptd_ns = 0;
-    b->last_vpts_ns = b->last_apts_ns = b->last_fed_vpts_ns = 0;
+    b->last_vpts_ns = b->last_apts_ns = b->last_fed_vpts_ns = b->last_fed_apts_ns = 0;
     b->t_http = b->t_first_byte = b->t_pmt = b->t_key = b->t_load_call = b->t_load_ret = 0;
     b->t_loadcompleted = b->t_playing = b->t_first_frame = 0;
     b->bytes_in = b->v_fed = b->a_fed = b->v_bytes = b->a_bytes = b->full_retries = 0;
@@ -2094,6 +2097,11 @@ long long player_file_size(player *b) { return b->file_size; }
 
 void player_set_htsp_status(player *b, player_htsp_status_fn fn) { b->htsp_status = fn; }
 
+void player_set_audio_offset(player *b, int ms) {
+    if (__atomic_exchange_n(&b->audio_offset_ms, ms, __ATOMIC_RELAXED) != ms)
+        mt_log("[player] audio offset %d ms", ms);
+}
+
 void player_set_audio_pref(player *b, const char *lang, int type, const char *codec) {
     snprintf(b->pref_lang, sizeof(b->pref_lang), "%s", lang ? lang : "");
     b->pref_type = type;
@@ -2249,10 +2257,12 @@ void player_tick(player *b) {
         /* lead: how far the last fed frame is ahead of the last shown one
          * = buffering in the pipeline, in time */
         double lead = (b->last_fed_vpts_ns && b->last_frame_pts) ? (b->last_fed_vpts_ns - b->last_frame_pts) / 1e6 : -1;
-        mt_log("[stat] %.1f Mbit/s, V %llu (%.1f MB) A %llu, shown %llu (%.1f fps), dropped %llu, "
+        /* A-V: last fed sound against last fed picture (time stamps, with the sound offset) */
+        double av = (b->last_fed_apts_ns && b->last_fed_vpts_ns) ? (b->last_fed_apts_ns - b->last_fed_vpts_ns) / 1e6 : 0;
+        mt_log("[stat] %.1f Mbit/s, V %llu (%.1f MB) A %llu, A-V %+.0f ms, shown %llu (%.1f fps), dropped %llu, "
                "lead %.0f ms, RenderQ %d, BufferFull retries %llu, feed errors %llu, CC %llu/%llu, noPTS %llu, "
                "PAT %llu (%d prog.), PMT %llu, Sync %llu",
-               mbit, (unsigned long long) b->v_fed, b->v_bytes / 1e6, (unsigned long long) b->a_fed,
+               mbit, (unsigned long long) b->v_fed, b->v_bytes / 1e6, (unsigned long long) b->a_fed, av,
                (unsigned long long) b->frames31, fps, (unsigned long long) b->dropped_frames, lead, rq,
                (unsigned long long) b->full_retries, (unsigned long long) b->feed_errors,
                (unsigned long long) b->pes_cc_err, (unsigned long long) b->ts.cc_errors,

@@ -84,6 +84,11 @@ void player_set_htsp_status(player *p, player_htsp_status_fn fn);
  * no preference (then German, no audio description, best codec). */
 void player_set_audio_pref(player *p, const char *lang, int type, const char *codec);
 
+/* Sound offset to the picture in ms: + = sound later. Shifts the time stamps of
+ * the audio fed from now on (live, timeshift, recordings); what the TV has
+ * buffered already plays as before. Any thread. */
+void player_set_audio_offset(player *p, int ms);
+
 /* Audio tracks of the current program; *current = index of the one playing
  * (-1 = none/not chosen yet). Returns the count (0 before the PMT). */
 int player_audio_tracks(player *p, player_track *out, int max, int *current);

@@ -47,7 +47,10 @@ installation and usage are in the [README](../README.md).
   playback it disappears 5 s after the last input (←/→/OK show it again).
 * Magic Remote: pointer (pointing selects, click activates, progress bar in
   recordings with target time/dragging), wheel (lists, teletext pages, ±30 s, live channel ±1)
-* Subtitle offset (yellow), banner with synopsis and scrolling title
+* Subtitle offset and sound offset (yellow menu; left/right in 25 ms steps, the wheel too; per
+  channel, a channel without its own value takes the last one set; the sound offset shifts the
+  time stamps of the audio fed, + = sound later, up to ±2 s, stored when adjusting ends),
+  banner with synopsis and scrolling title
 * Programme info window (long OK press in the live picture, from 0.6 s, with the
   Magic Remote pointer hidden): the banner
   enlarged upwards with title, subtitle, additional details (genre, episode, year,
@@ -284,6 +287,7 @@ in a trusted network only.
     socat -u TCP-LISTEN:5558 OPEN:shot.png,creat &             # receiver
     echo "SHOT <pc>:5558" | socat - UDP:<tv>:5556   # UI as PNG (without video)
     echo "WHEEL 1" | socat - UDP:<tv>:5556                  # wheel
+    echo "AOFF clear 208" | socat - UDP:<tv>:5556           # sound offset of a channel: ms, or clear (also the last one set)
     echo "VDROP 20" | socat - UDP:<tv>:5556                 # test: discard 20 s of video (picture watchdog)
     echo "CUT 2" | socat - UDP:<tv>:5556                    # test: cut the recording's connection, fail 2 reconnects (5 = give up)
     echo "TVON" | socat - UDP:<tv>:5556                     # test: as if the TV was just switched on (Kore rule)
