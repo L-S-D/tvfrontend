@@ -59,7 +59,8 @@ typedef struct {
 } ts_ttxsub;
 
 typedef struct {
-    int program;
+    int program;    /* service_id */
+    int tsid, onid; /* of the TS (PAT, SDT; HTSP: sourceinfo of a tvh with the extension), -1 = unknown */
     int pmt_pid;
     int pcr_pid;
     int version;

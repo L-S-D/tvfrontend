@@ -302,6 +302,8 @@ static void pmt_done(ts_demux *d, int i, const uint8_t *s, size_t len) {
     ts_pmt pmt;
     memset(&pmt, 0, sizeof(pmt));
     pmt.program = (s[3] << 8) | s[4];
+    pmt.tsid = d->tsid;
+    pmt.onid = d->onid;
     pmt.pmt_pid = pr->pid;
     pmt.version = version;
     pmt.pcr_pid = ((s[8] & 0x1f) << 8) | s[9];

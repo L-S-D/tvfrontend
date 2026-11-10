@@ -876,6 +876,17 @@ static int dec2hex_page(int p) {
     return (p / 100) << 8 | (p / 10 % 10) << 4 | p % 10;
 }
 
+/* the DVB ids of the programme playing (HbbTV), when all three are known; 1 = known */
+static int set_dvb_ids(player *b, const ts_pmt *pm) {
+    if (pm->program <= 0 || pm->tsid < 0 || pm->onid < 0) return 0;
+    pthread_mutex_lock(&b->lock);
+    b->dvb_sid = pm->program;
+    b->dvb_tsid = pm->tsid;
+    b->dvb_onid = pm->onid;
+    pthread_mutex_unlock(&b->lock);
+    return 1;
+}
+
 /* subscriptionStart -> PMT for on_pmt; side streams to side */
 static void htsp_start_msg(player *b, unsigned long chid, const unsigned char *body, size_t len) {
     cJSON *j = hmsg_parse(body, len);
@@ -950,10 +961,15 @@ static void htsp_start_msg(player *b, unsigned long chid, const unsigned char *b
     const cJSON *si = cJSON_GetObjectItemCaseSensitive(j, "sourceinfo");
     mt_log("[htsp] subscriptionStart after %.1f ms: %s / %s, %d streams", sms(b, mt_now_ns()), cjs(si, "mux"),
            cjs(si, "service"), pm.n);
+    /* DVB ids of the service (tvh with the HTSP extension; otherwise from the PMT lookup) */
+    pm.program = (int) cjn(si, "sid", 0);
+    pm.tsid = (int) cjn(si, "tsid", -1);
+    pm.onid = (int) cjn(si, "onid", -1);
+    int ids = set_dvb_ids(b, &pm);
     if (b->htsp_status) b->htsp_status(chid, "subscriptionStart", j);
     cJSON_Delete(j);
     on_pmt(b, &pm);
-    if (!ext && b->pmt_request) b->pmt_request(b->pmt_request_user, chid);
+    if ((!ext || !ids) && b->pmt_request) b->pmt_request(b->pmt_request_user, chid);
 }
 
 static void htsp_status_msg(player *b, unsigned long chid, const char *method, const unsigned char *body,
@@ -1438,6 +1454,9 @@ static void *feeder_main(void *arg) {
 }
 
 static void reset_session(player *b) {
+    pthread_mutex_lock(&b->lock);
+    b->dvb_onid = b->dvb_tsid = b->dvb_sid = -1; /* not those of the stream before */
+    pthread_mutex_unlock(&b->lock);
     b->state = ST_IDLE;
     b->http_status = 0;
     mpa_pcm_free(b->mpa);
@@ -1971,7 +1990,17 @@ int player_merge_pmt(player *b, unsigned long channel, const ts_pmt *src) {
             break;
         }
     }
+    /* the DVB ids (PAT, SDT of the lookup), when tvh did not send them */
+    int ids = b->dvb_sid <= 0 && src->program > 0 && src->tsid >= 0 && src->onid >= 0;
+    if (ids) {
+        b->dvb_sid = src->program;
+        b->dvb_tsid = src->tsid;
+        b->dvb_onid = src->onid;
+    }
     pthread_mutex_unlock(&b->lock);
+    if (ids)
+        mt_log("[player] DVB ids of channel %lu from the PMT lookup: onid %d tsid %d sid %d", channel, src->onid,
+               src->tsid, src->program);
     if (changed) {
         mt_log("[player] stream details from the PMT of channel %lu added:", channel);
         for (int i = 0; i < before.n; i++) {

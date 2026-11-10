@@ -148,6 +148,12 @@ for the whole HbbTV session, across page loads and after the app's own videos, u
 the app brings the picture back or HbbTV is closed – catch-up services no longer show the
 running programme between their videos.
 
+The channel object of `video/broadcast` carries the DVB ids (onid, tsid, sid; broadcaster
+apps pick their content by them). A tvh with the HTSP extension sends them in the
+`sourceinfo` of `subscriptionStart`; otherwise the PMT lookup (`pmtinfo.c`, build option
+`TVF_PMT_FALLBACK`) reads them from PAT and SDT of the pass stream. They are reset with
+every playback, so a recording's ids do not stay with the live channels after it.
+
 Selecting the current channel again (channel list, EPG, digits) does not restart
 it as long as it is playing cleanly – only the banner appears (in timeshift
 playback stays time-shifted). If the stream has dropped, has no picture yet, or

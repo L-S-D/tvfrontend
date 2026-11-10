@@ -15,6 +15,7 @@
 #define MAX_CHANNELS 64
 #define READ_LIMIT (4 * 1024 * 1024) /* PMT comes right at the start */
 #define TIME_LIMIT_S 5
+#define SDT_WAIT_MS 2500 /* after the PMT: the SDT (original network id) comes every 2 s at most */
 
 typedef struct {
     unsigned long channel;
@@ -78,12 +79,22 @@ static int read_pmt(unsigned long channel, reader *r) {
     uint8_t buf[188 * 64];
     size_t total = 0;
     time_t t0 = time(NULL);
-    while (!r->done && total < READ_LIMIT && time(NULL) - t0 <= TIME_LIMIT_S) {
+    struct timespec pmt_at = {0, 0}, now;
+    for (;;) {
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (r->done && !pmt_at.tv_sec) pmt_at = now;
+        /* the PMT, then the SDT for the original network id (HbbTV) */
+        if (r->done && (d->onid >= 0 || (now.tv_sec - pmt_at.tv_sec) * 1000 +
+                                                (now.tv_nsec - pmt_at.tv_nsec) / 1000000 >= SDT_WAIT_MS))
+            break;
+        if (total >= READ_LIMIT || time(NULL) - t0 > TIME_LIMIT_S) break;
         ssize_t n = http_read(&c, buf, sizeof(buf));
         if (n <= 0) break;
         total += (size_t) n;
         ts_feed(d, buf, (size_t) n);
     }
+    r->pmt.tsid = d->tsid;
+    r->pmt.onid = d->onid;
     ts_free(d);
     free(d);
     http_close(&c);
@@ -109,8 +120,8 @@ static void *lookup_thread(void *arg) {
         for (int i = 0; i < r->pmt.n_ttxsub && l + 12 < sizeof(list); i++)
             l += (size_t) snprintf(list + l, sizeof(list) - l, "%s%03X %s/%d", i ? ", " : "", r->pmt.ttxsub[i].page,
                                    r->pmt.ttxsub[i].lang, r->pmt.ttxsub[i].type);
-        mt_log("[pmtinfo] channel %lu: %d streams, subtitle pages %s", channel, r->pmt.n,
-               r->pmt.n_ttxsub ? list : "none");
+        mt_log("[pmtinfo] channel %lu: %d streams, subtitle pages %s, onid %d tsid %d sid %d", channel, r->pmt.n,
+               r->pmt.n_ttxsub ? list : "none", r->pmt.onid, r->pmt.tsid, r->pmt.program);
         if (g_cb && e) g_cb(channel, &r->pmt);
     }
     free(r);

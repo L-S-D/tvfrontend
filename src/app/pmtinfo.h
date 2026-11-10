@@ -5,7 +5,8 @@
  * impaired; HTSP names neither them nor a shared teletext's programme), component tags, the
  * subtitling type of DVB subtitles, the initial teletext page, audio description and receiver mix.
  * Once per channel, briefly open the HTTP stream with the pass profile (same service as the HTSP
- * subscription, no second tuner), read PAT/PMT with the stream demuxer, close. The result is kept
+ * subscription, no second tuner), read PAT/PMT with the stream demuxer, then the SDT for the DVB ids
+ * (HbbTV; a tvh with the extension sends them in subscriptionStart), close. The result is kept
  * until restart. The merge into the stream list is player_merge_pmt().
  */
 #pragma once
