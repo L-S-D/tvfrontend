@@ -101,6 +101,27 @@ HbbTV runs in a separate browser add-on package, `com.lsd.tvf.web` (large, ~120 
 
 Without it TVF works as usual, only the red button does nothing.
 
+### 6. Faster channel switching (optional)
+
+TVF works with a plain tvheadend. Our tvheadend fork adds *instant zapping*: tvheadend keeps chosen
+muxes tuned and holds the last seconds of their whole transport stream in a ring buffer. Switching to
+a channel on such a warm mux starts the stream at the last keyframe from the buffer instead of
+waiting for the next one, and the picture comes up in about half a second (LG G4, satellite). TVF
+needs no setting for it.
+
+Use the branch [`v3/tvf`](https://github.com/L-S-D/tvheadend/tree/v3/tvf) of
+[L-S-D/tvheadend](https://github.com/L-S-D/tvheadend): current upstream tvheadend, our open pull
+requests (among them the HTSP extensions that save TVF its PMT lookup) and instant zapping. It builds
+like tvheadend itself; instant zapping is compiled in unless you pass `--disable-dvbbuffer`. The
+fork's `master` is `v3/all`, which adds further work on top (Neumo DVB driver, DAB, T2-MI).
+
+In tvheadend:
+
+- Mark the muxes to keep warm: Configuration → DVB Inputs → Muxes, *Prebuffer (instant zapping)*.
+- Optionally keep the last watched muxes warm too: Configuration → Stream → Instant Zapping,
+  *Recently used muxes kept warm* (0 = off).
+- Every warm mux holds a tuner, with a low weight: recordings and viewers still get it when needed.
+
 ## Build
 
 TVF is cross-compiled for the TV with the webOS buildroot toolchain.
