@@ -12,8 +12,10 @@
  * - everything else as cJSON into a queue for the main thread:
  *   asynchronous messages ("method": channelAdd, eventUpdate, dvrEntryAdd,
  *   initialSyncCompleted, ...), replies to htsp_request (with "seq"), plus
- *   {"method":"_sync"} before every (re)sync and {"method":"_down"} after a
- *   disconnect.
+ *   {"method":"_sync"} before every (re)sync, {"method":"_down"} after a
+ *   disconnect and {"method":"_noaccess"} when tvh refuses the user (login
+ *   rejected, or no rights - not the connection limit); then it tries again
+ *   after 60 s.
  */
 #pragma once
 

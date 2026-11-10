@@ -80,8 +80,14 @@ Create a tvheadend user for the TV (Configuration → Users → Access Entries a
 rights for streaming and for the video recorder (names vary slightly between tvheadend versions).
 For timeshift, enable it in tvheadend (Configuration → Recording → Timeshift).
 
-In TVF **hold the green key** (a long press) for the settings page and enter the server address,
-user and password. Press *Save and restart*.
+TVF looks for tvheadend in the network at the first start (tvheadend announces itself via
+mDNS/Avahi, so it needs a tvheadend built with Avahi and a running `avahi-daemon` on the server):
+if it finds exactly one server, it takes it; otherwise the settings page opens to choose one or to
+enter the address. If the server refuses the login, the settings page opens at the user field.
+
+In TVF **hold the green key** (a long press) for the settings page: *Search for servers* (OK, then
+left/right picks a server found), or enter the server address yourself, then user and password.
+Press *Save and restart*.
 
 ### 5. HbbTV (optional)
 
@@ -150,7 +156,8 @@ with *Save and restart*.
 - **The app disappears from the TV**: the Developer Mode session ran out. Open the Developer Mode app
   and extend it, then install again if needed.
 - **No channels or a message that the server cannot be reached**: hold green and check address, ports
-  and login; the TV and the server must be on the same network.
+  and login; the TV and the server must be on the same network. *Search for servers* finds a
+  tvheadend that announces itself via Avahi (in Docker only with host networking).
 - **Nothing happens after `ares-launch`**: the app is already running – close it first
   (`ares-launch -d tv --close com.lsd.tvf`).
 - **A log without SSH**: `ares-launch -d tv com.lsd.tvf -p '{"log":"<PC IP>:5555"}'`, then on the PC

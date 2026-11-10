@@ -88,6 +88,9 @@ package `com.lsd.tvf.web`, or without the package the old location
 a remembered path without `run.sh` falls back to `auto`) – these setting
 parameters are remembered like the settings page,
 `dvrReadOnly` (1 = for tests: timers and resume positions are not written to tvh, only logged),
+`tvhTest` (for tests: `{"host":…,"user":…,"pass":…}` – tvh server and login of this run only,
+nothing is saved; a member that is left out keeps the stored value, `"host":""` = no server,
+then TVF searches the network as at the first start and shows the result instead of taking it),
 `stats` (ms, player statistics), player tuning knobs: `ctype`, `margin`,
 `vmax`/`amax`, `mpa` (`pcm` or a Starfish name such as `MPEG`), `alang`, `apid`,
 `maxfps`, `fps`, `keymode`, `dump`/`dumpmb` (raw data capture via TCP).
@@ -172,8 +175,9 @@ launch parameters except the setting ones are kept), Back/Cancel discards.
 |---|---|---|
 | Language | Automatic (TV) | every `res/lang/*.json` plus English |
 | Key layout | Standard | Standard: green long = settings; HbbTV first: HbbTV starts visibly, settings with a long red press (see "Keys") |
-| TVheadend server address, HTTP/HTSP port | – (build option `TVF_DEFAULT_TVH_HOST`), 9981, 9982 | |
-| User, password | – | tvh login for HTSP and streams (password masked) |
+| Search for servers | – | OK: mDNS query for `_htsp._tcp` (tvh's Avahi announcement, `mdns.c`), 1.5 s; left/right picks a server found and fills address and ports |
+| TVheadend server address, HTTP/HTSP port | – (build option `TVF_DEFAULT_TVH_HOST`), 9981, 9982 | without an address TVF searches at the start: exactly one server is taken (restart), else the page opens |
+| User, password | – | tvh login for HTSP and streams (password masked); a refused login (tvh `noaccess`, not the connection limit) opens the page here once per start |
 | Internet access (HbbTV) | Rules per channel | `egress.json`; or direct, or one fixed proxy |
 
 The proxies and the channel → proxy rules (`egress.json`, empty by default, own

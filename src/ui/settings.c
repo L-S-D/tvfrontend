@@ -19,7 +19,7 @@
 #define LIST_W 1600
 #define MAX_ITEMS 32
 
-typedef enum { T_HEADER, T_CHOICE, T_TEXT, T_NUMBER, T_PASSWORD, T_SAVE, T_CANCEL } item_type;
+typedef enum { T_HEADER, T_CHOICE, T_TEXT, T_NUMBER, T_PASSWORD, T_FIND, T_SAVE, T_CANCEL } item_type;
 
 typedef struct {
     item_type type;
@@ -37,7 +37,14 @@ typedef struct {
 static settings_actions act;
 static item items[MAX_ITEMS];
 static int nitems, sel;
-static lv_obj_t *root, *list, *foot;
+static lv_obj_t *root, *list, *foot, *note;
+
+/* server search: servers found (-1 = not searched yet), the one in the
+ * fields; apply_pending: found before the page opened */
+#define FIND_KEY "tvh.find" /* pseudo key of the search row, not saved */
+#define MAX_SERVERS 8
+static settings_server servers[MAX_SERVERS];
+static int nservers = -1, srv_sel, searching, apply_pending;
 static char egress_orig[256]; /* hbbtv.egress as stored: rules, direct or proxy URL */
 
 /* on-screen keyboard */
@@ -119,6 +126,7 @@ static void build_items(void) {
     if (it) it->native = 1;
     add_choice("keys.layout", N_("Key layout"), KL_V, KL_L, 2);
     add(T_HEADER, NULL, N_("TVheadend"));
+    if (act.find) add(T_FIND, FIND_KEY, N_("Search for servers"));
     it = add(T_TEXT, "tvh.host", N_("Server address"));
     if (it) it->need_value = 1;
     add(T_NUMBER, "tvh.http_port", N_("HTTP port"));
@@ -202,7 +210,28 @@ static void value_text(const item *t, char *out, size_t n) {
             snprintf(out, n, "%s", t->value);
         else snprintf(out, n, "%s", t->off_empty ? _("off") : "\xE2\x80\x94");
         break;
+    case T_FIND:
+        if (searching) snprintf(out, n, "%s", _("Searching\xE2\x80\xA6"));
+        else if (nservers < 0) snprintf(out, n, "%s", _("OK starts the search"));
+        else if (!nservers) snprintf(out, n, "%s", _("No server found"));
+        else if (nservers == 1) snprintf(out, n, "%s", servers[srv_sel].label);
+        else snprintf(out, n, "%s  (%d/%d)", servers[srv_sel].label, srv_sel + 1, nservers);
+        break;
     default: break;
+    }
+}
+
+/* a server found: its address and ports into the fields (not saved yet) */
+static void apply_server(int k) {
+    const settings_server *s = &servers[k];
+    for (int i = 0; i < nitems; i++) {
+        item *t = &items[i];
+        if (!t->key) continue;
+        if (!strcmp(t->key, "tvh.host")) snprintf(t->value, sizeof(t->value), "%s", s->host);
+        else if (!strcmp(t->key, "tvh.http_port") && s->http_port > 0)
+            snprintf(t->value, sizeof(t->value), "%d", s->http_port);
+        else if (!strcmp(t->key, "tvh.htsp_port") && s->htsp_port > 0)
+            snprintf(t->value, sizeof(t->value), "%d", s->htsp_port);
     }
 }
 
@@ -468,7 +497,7 @@ static void save(void) {
         if (items[i].key && !strcmp(items[i].key, EGRESS_PROXY)) fixed = items[i].value;
     for (int i = 0; i < nitems; i++) {
         item *t = &items[i];
-        if (!t->key || !strcmp(t->key, EGRESS_PROXY)) continue;
+        if (!t->key || !strcmp(t->key, EGRESS_PROXY) || t->type == T_FIND) continue;
         if (t->type == T_CHOICE && !strcmp(t->key, "hbbtv.egress")) {
             /* the fixed proxy is part of this choice; without an address it stays as it was */
             const char *v = strcmp(t->value, "proxy") ? t->value : fixed;
@@ -506,6 +535,15 @@ static void activate(int dir) {
     case T_PASSWORD:
         if (!dir) edit_start(sel);
         return;
+    case T_FIND:
+        if (!dir && act.find && !searching) {
+            searching = 1;
+            act.find();
+        } else if (dir && nservers > 0) {
+            srv_sel = (srv_sel + dir + nservers) % nservers;
+            apply_server(srv_sel);
+        }
+        break;
     case T_SAVE:
         if (!dir) save();
         return;
@@ -546,21 +584,53 @@ void settings_init(const settings_actions *a) {
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
     foot = lbl(root, 20, 0, UI_TEXT, OPA(0.55));
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -24);
+    /* why the page opened by itself (no server, login refused) */
+    note = lbl(root, 24, 0, UI_YELLOW, LV_OPA_COVER);
+    lv_obj_set_width(note, LIST_W - 420);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_RIGHT, 0);
+    ui_label_dots(note);
+    lv_obj_align(note, LV_ALIGN_TOP_RIGHT, -LIST_X, (HDR_H - lv_font_get_line_height(ui_font(24, 0))) / 2);
     build_osk();
     show(root, 0);
 }
 
-void settings_open(void) {
+void settings_open(void) { settings_open_at(NULL, NULL); }
+
+void settings_open_at(const char *key, const char *text) {
     build_items();
     build_rows();
+    /* a result that came while the page was closed goes into the fields;
+     * an older one is forgotten (the fields show the stored values again) */
+    if (apply_pending && nservers > 0) apply_server(srv_sel);
+    else if (!apply_pending) nservers = -1;
+    apply_pending = 0;
     sel = 0;
     move(1);
+    for (int i = 0; key && i < nitems; i++)
+        if (items[i].key && !strcmp(items[i].key, key) && selectable(i)) sel = i;
     editing = -1;
     show(osk, 0);
+    lv_label_set_text(note, text ? text : "");
+    show(note, text && *text);
     show(root, 1);
     lv_obj_move_foreground(root);
     render();
-    mt_log("[settings] open");
+    mt_log("[settings] open%s%s", key ? " at " : "", key ? key : "");
+}
+
+void settings_servers(const settings_server *s, int n) {
+    if (n > MAX_SERVERS) n = MAX_SERVERS;
+    if (n < 0) n = 0;
+    memcpy(servers, s, (size_t) n * sizeof(*s));
+    nservers = n;
+    srv_sel = 0;
+    searching = 0;
+    if (!settings_visible()) {
+        apply_pending = 1;
+        return;
+    }
+    if (n > 0) apply_server(0);
+    render();
 }
 
 void settings_close(void) {

@@ -365,3 +365,214 @@ int mdns_start(const char *instance, const char *ip, const mdns_service *s, int 
     mt_log("[mdns] \"%s\" as %s (%d services)", g_inst, g_host, g_nsvc);
     return 0;
 }
+
+/* ---------------- Search for TVHeadend servers ---------------- */
+
+#define HTSP_SVC "._htsp._tcp.local"
+#define HTTP_SVC "._http._tcp.local"
+
+typedef struct {
+    mdns_tvh s;
+    struct in_addr from; /* sender of the SRV record */
+    int asked_http;      /* the _http._tcp instance was asked for */
+} find_entry;
+
+static pthread_mutex_t fmu = PTHREAD_MUTEX_INITIALIZER;
+static int f_state; /* 0 idle, 1 searching, 2 result ready */
+static mdns_tvh f_res[MDNS_TVH_MAX];
+static int f_n;
+
+/* the instance of a full name with the suffix; 1 = it is one */
+static int inst_of(const char *name, const char *suffix, char *inst, size_t n) {
+    size_t l = strlen(name), sl = strlen(suffix);
+    if (l <= sl || strcasecmp(name + l - sl, suffix)) return 0;
+    snprintf(inst, n, "%.*s", (int) (l - sl), name);
+    return 1;
+}
+
+static find_entry *entry(find_entry *e, int *n, const char *inst) {
+    for (int i = 0; i < *n; i++)
+        if (!strcmp(e[i].s.name, inst)) return &e[i];
+    if (*n >= MDNS_TVH_MAX) return NULL;
+    find_entry *x = &e[(*n)++];
+    memset(x, 0, sizeof(*x));
+    snprintf(x->s.name, sizeof(x->s.name), "%s", inst);
+    snprintf(x->s.http_root, sizeof(x->s.http_root), "/");
+    return x;
+}
+
+/* TXT of the web interface: path=<webroot> */
+static void txt_path(const uint8_t *d, size_t len, char *out, size_t n) {
+    for (size_t o = 0; o < len;) {
+        size_t l = d[o++];
+        if (o + l > len) break;
+        if (l > 5 && !strncasecmp((const char *) d + o, "path=", 5))
+            snprintf(out, n, "%.*s", (int) (l - 5), (const char *) d + o + 5);
+        o += l;
+    }
+}
+
+typedef struct {
+    char name[64];
+    struct in_addr a;
+} host_addr;
+
+/* one answer: its records into the entries and host addresses */
+static void find_parse(const uint8_t *m, size_t len, struct in_addr from, find_entry *e, int *ne, host_addr *h,
+                       int *nh) {
+    if (len < 12 || !(m[2] & 0x80)) return; /* responses only */
+    unsigned qd = (unsigned) (m[4] << 8 | m[5]);
+    unsigned nr = (unsigned) (m[6] << 8 | m[7]) + (unsigned) (m[8] << 8 | m[9]) + (unsigned) (m[10] << 8 | m[11]);
+    size_t off = 12;
+    char name[256], inst[64];
+    for (unsigned q = 0; q < qd; q++) {
+        if (read_name(m, len, &off, name, sizeof(name)) != 0 || off + 4 > len) return;
+        off += 4;
+    }
+    for (unsigned r = 0; r < nr; r++) {
+        if (read_name(m, len, &off, name, sizeof(name)) != 0 || off + 10 > len) return;
+        unsigned type = (unsigned) (m[off] << 8 | m[off + 1]);
+        size_t rl = (size_t) (m[off + 8] << 8 | m[off + 9]), d = off + 10;
+        off = d + rl;
+        if (off > len) return;
+        if (type == T_PTR && !strcasecmp(name, HTSP_SVC + 1)) {
+            char target[256];
+            size_t o = d;
+            if (read_name(m, len, &o, target, sizeof(target)) == 0 && inst_of(target, HTSP_SVC, inst, sizeof(inst)))
+                entry(e, ne, inst);
+        } else if (type == T_SRV && rl > 6) {
+            int port = m[d + 4] << 8 | m[d + 5];
+            char target[256];
+            size_t o = d + 6;
+            if (read_name(m, len, &o, target, sizeof(target)) != 0) continue;
+            find_entry *x = NULL;
+            if (inst_of(name, HTSP_SVC, inst, sizeof(inst)) && (x = entry(e, ne, inst)) != NULL) {
+                x->s.htsp_port = port;
+                x->from = from;
+                snprintf(x->s.hostname, sizeof(x->s.hostname), "%.63s", target);
+            } else if (inst_of(name, HTTP_SVC, inst, sizeof(inst)) && (x = entry(e, ne, inst)) != NULL) {
+                x->s.http_port = port;
+            }
+        } else if (type == T_TXT && inst_of(name, HTTP_SVC, inst, sizeof(inst))) {
+            find_entry *x = entry(e, ne, inst);
+            if (x) txt_path(m + d, rl, x->s.http_root, sizeof(x->s.http_root));
+        } else if (type == T_A && rl == 4 && *nh < 2 * MDNS_TVH_MAX) {
+            snprintf(h[*nh].name, sizeof(h[0].name), "%.63s", name);
+            memcpy(&h[*nh].a, m + d, 4);
+            (*nh)++;
+        }
+    }
+}
+
+/* question for name/type (legacy unicast: from our own port) */
+static void find_ask(int fd, const char *name, unsigned type) {
+    pkt p;
+    p.n = 0;
+    p.over = 0;
+    put16(&p, 0);
+    put16(&p, 0);
+    put16(&p, 1);
+    put16(&p, 0);
+    put16(&p, 0);
+    put16(&p, 0);
+    put_name(&p, NULL, name);
+    put16(&p, type);
+    put16(&p, 0x8001); /* IN, unicast response wanted */
+    struct sockaddr_in to = mcast();
+    if (!p.over) sendto(fd, p.b, p.n, 0, (const struct sockaddr *) &to, sizeof(to));
+}
+
+static long ms_since(const struct timespec *t0) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (now.tv_sec - t0->tv_sec) * 1000 + (now.tv_nsec - t0->tv_nsec) / 1000000;
+}
+
+static void *find_main(void *arg) {
+    int wait = (int) (intptr_t) arg;
+    find_entry e[MDNS_TVH_MAX];
+    host_addr h[2 * MDNS_TVH_MAX];
+    int ne = 0, nh = 0, asked = 0;
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd >= 0) {
+        unsigned char ttl = 255;
+        setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+        struct timespec t0;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        for (long ms = 0; ms < wait; ms = ms_since(&t0)) {
+            /* the question at 0, a third and two thirds of the wait */
+            if (asked < 3 && ms >= asked * (wait / 3)) {
+                find_ask(fd, HTSP_SVC + 1, T_PTR);
+                asked++;
+            }
+            /* the web interface of each server found (not all _http._tcp of the network) */
+            for (int i = 0; i < ne; i++)
+                if (asked > e[i].asked_http) {
+                    char q[200];
+                    snprintf(q, sizeof(q), "%.63s%s", e[i].s.name, HTTP_SVC);
+                    find_ask(fd, q, T_SRV);
+                    find_ask(fd, q, T_TXT);
+                    e[i].asked_http = asked;
+                }
+            struct pollfd pf = {fd, POLLIN, 0};
+            if (poll(&pf, 1, 50) <= 0) continue;
+            uint8_t buf[9000];
+            struct sockaddr_in from;
+            socklen_t fl = sizeof(from);
+            ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *) &from, &fl);
+            if (n > 0) find_parse(buf, (size_t) n, from.sin_addr, e, &ne, h, &nh);
+        }
+        close(fd);
+    }
+    int n = 0;
+    mdns_tvh res[MDNS_TVH_MAX];
+    for (int i = 0; i < ne; i++) {
+        if (!e[i].s.htsp_port) continue; /* no SRV: not reachable */
+        res[n] = e[i].s;
+        struct in_addr a = e[i].from;
+        for (int k = 0; k < nh; k++)
+            if (!strcasecmp(h[k].name, e[i].s.hostname)) a = h[k].a;
+        inet_ntop(AF_INET, &a, res[n].addr, sizeof(res[n].addr));
+        mt_log("[mdns] tvh \"%s\" at %s (%s), HTSP %d, HTTP %d%s", res[n].name, res[n].addr, res[n].hostname,
+               res[n].htsp_port, res[n].http_port, res[n].http_root);
+        n++;
+    }
+    mt_log("[mdns] search: %d tvh server(s)%s", n, fd < 0 ? " (no socket)" : "");
+    pthread_mutex_lock(&fmu);
+    memcpy(f_res, res, sizeof(res));
+    f_n = n;
+    f_state = 2;
+    pthread_mutex_unlock(&fmu);
+    return NULL;
+}
+
+int mdns_find_tvh(int wait_ms) {
+    pthread_mutex_lock(&fmu);
+    if (f_state == 1) {
+        pthread_mutex_unlock(&fmu);
+        return 0;
+    }
+    f_state = 1;
+    pthread_mutex_unlock(&fmu);
+    pthread_t t;
+    if (pthread_create(&t, NULL, find_main, (void *) (intptr_t) (wait_ms > 300 ? wait_ms : 300)) != 0) {
+        pthread_mutex_lock(&fmu);
+        f_state = 0;
+        pthread_mutex_unlock(&fmu);
+        return -1;
+    }
+    pthread_detach(t);
+    return 0;
+}
+
+int mdns_find_tvh_result(mdns_tvh *out, int max) {
+    int n = -1;
+    pthread_mutex_lock(&fmu);
+    if (f_state == 2) {
+        n = f_n;
+        for (int i = 0; i < n && i < max; i++) out[i] = f_res[i];
+        f_state = 0;
+    }
+    pthread_mutex_unlock(&fmu);
+    return n;
+}

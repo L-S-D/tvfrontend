@@ -214,6 +214,16 @@ static int dial(const char *host, int port) {
     return s;
 }
 
+/* a reply that refuses (noaccess): 1 = the user (login wrong or missing),
+ * 2 = the limit of connections (noaccess with connlimit: no question of user
+ * and password), 0 = not refused */
+static int refused(const cJSON *r) {
+    const cJSON *na = cJSON_GetObjectItemCaseSensitive(r, "noaccess");
+    if (!na || !(cJSON_IsTrue(na) || cJSON_GetNumberValue(na) != 0)) return 0;
+    return cJSON_GetObjectItemCaseSensitive(r, "connlimit") ? 2 : 1;
+}
+
+/* 0 = logged in, 1 = user refused, 2 = connection limit, -1 = no answer */
 static int login(int s, const char *user, const char *pass) {
     hmsg m;
     hmsg_init(&m);
@@ -250,14 +260,10 @@ static int login(int s, const char *user, const char *pass) {
     if (r != 0) return -1;
     cJSON *a = read_msg(s, NULL);
     if (!a) return -1;
-    const cJSON *na = cJSON_GetObjectItemCaseSensitive(a, "noaccess");
-    int denied = na && (cJSON_IsTrue(na) || cJSON_GetNumberValue(na) != 0);
+    int denied = refused(a);
     cJSON_Delete(a);
-    if (denied) {
-        mt_log("[htsp] login as %s rejected", user);
-        return 1;
-    }
-    return 0;
+    if (denied) mt_log("[htsp] login as %s rejected%s", user, denied == 2 ? ": connection limit" : "");
+    return denied;
 }
 
 /* read method, subscriptionId and seq without parsing the whole message */
@@ -347,6 +353,7 @@ static void *htsp_main(void *arg) {
             continue;
         }
         int h = login(s, cfg.user, cfg.pass);
+        if (h == 1) push_marker("_noaccess");
         if (h != 0) {
             close(s);
             int wait = h > 0 ? 60 : backoff;
@@ -395,6 +402,15 @@ static void *htsp_main(void *arg) {
             free(body);
             if (!j) {
                 mt_log("[htsp] message unreadable (%zu bytes)", len);
+                continue;
+            }
+            /* the reply to enableAsyncMetadata (seq 3): without rights (e.g.
+             * anonymous where tvh wants a login) tvh only says noaccess */
+            if (!*jstr(j, "method") && cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "seq")) == 3 &&
+                refused(j) == 1) {
+                mt_log("[htsp] no access as %s", cfg.user[0] ? cfg.user : "anonymous");
+                cJSON_Delete(j);
+                push_marker("_noaccess");
                 continue;
             }
             if (!synced && !strcmp(jstr(j, "method"), "initialSyncCompleted")) {

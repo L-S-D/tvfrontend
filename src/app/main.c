@@ -34,6 +34,7 @@
 #include "kodi.h"
 #include "log.h"
 #include "luna.h"
+#include "mdns.h"
 #include "osd.h"
 #include "player.h"
 #include "prefs.h"
@@ -136,6 +137,12 @@ static int g_restart; /* settings saved: restart after cleaning up */
  * starts visibly, short colour keys belong to it, long ones to TVF; settings
  * with Red long when HbbTV is not visible. Otherwise "Standard" (classic) */
 static int g_keys_hbbtv;
+/* tvh server search (mDNS): running; started at the start because no server
+ * is set (then the result decides); the settings opened once for the login */
+static int g_finding, g_find_first, g_noaccess_shown;
+/* test: tvh server and login of this run only, not saved (launch parameter
+ * "tvhTest": {"host", "user", "pass"}) */
+static cJSON *g_tvh_test;
 
 static void on_signal(int s) {
     (void) s;
@@ -1166,6 +1173,62 @@ static void open_settings(void) {
     settings_open();
 }
 
+#define FIND_WAIT_MS 1500
+
+/* search the network for tvh servers (settings page, start without a server) */
+static void app_find(void) {
+    if (mdns_find_tvh(FIND_WAIT_MS) == 0) g_finding = 1;
+    else settings_servers(NULL, 0);
+}
+
+/* the result of the search: to the settings page; at the start without a
+ * server the only one found is taken (TVF restarts with it), otherwise the
+ * page opens to choose or enter one */
+static void found_servers(void) {
+    mdns_tvh f[MDNS_TVH_MAX];
+    int n = mdns_find_tvh_result(f, MDNS_TVH_MAX);
+    if (n < 0) return;
+    g_finding = 0;
+    settings_server s[MDNS_TVH_MAX];
+    for (int i = 0; i < n; i++) {
+        char hn[64];
+        snprintf(hn, sizeof(hn), "%s", f[i].hostname);
+        size_t l = strlen(hn);
+        if (l > 6 && !strcmp(hn + l - 6, ".local")) hn[l - 6] = 0;
+        snprintf(s[i].label, sizeof(s[i].label), "%s \xE2\x80\x93 %s (%s)", f[i].name, hn, f[i].addr);
+        snprintf(s[i].host, sizeof(s[i].host), "%s", f[i].addr);
+        s[i].http_port = f[i].http_port;
+        s[i].htsp_port = f[i].htsp_port;
+    }
+    if (!g_find_first) {
+        settings_servers(s, n);
+        return;
+    }
+    g_find_first = 0;
+    /* (with tvhTest nothing is saved: the page shows it instead) */
+    if (n == 1 && !g_tvh_test) {
+        mt_log("[app] the only tvh server in the network: %s - taken", s[0].label);
+        prefs_set("tvh.host", cJSON_CreateString(s[0].host));
+        if (s[0].http_port > 0) prefs_set("tvh.http_port", cJSON_CreateNumber(s[0].http_port));
+        prefs_set("tvh.htsp_port", cJSON_CreateNumber(s[0].htsp_port));
+        settings_restart();
+        return;
+    }
+    osd_hide();
+    settings_servers(s, n);
+    settings_open_at(n ? "tvh.find" : "tvh.host",
+                     n ? _("Choose the TVH server with left/right, then save")
+                       : _("No TVH server found in the network - enter its address"));
+}
+
+/* tvh refuses the user: once the settings at the login */
+static void app_noaccess(void) {
+    if (g_noaccess_shown || settings_visible()) return;
+    g_noaccess_shown = 1;
+    osd_hide();
+    settings_open_at("tvh.user", _("The TVH server refused the login - enter user and password"));
+}
+
 /* Colour key short with HbbTV open: to the app if its keyset requests it.
  * Otherwise not to TVF (that would differ depending on the keyset), only a
  * hint; Red without Red in the keyset restarts HbbTV as before */
@@ -1767,6 +1830,9 @@ int main(int argc, char *argv[]) {
         cJSON *lp = params ? cJSON_Duplicate(params, 1) : NULL;
         if (cJSON_GetObjectItemCaseSensitive(lp, "tvhPass"))
             cJSON_ReplaceItemInObjectCaseSensitive(lp, "tvhPass", cJSON_CreateString("***"));
+        cJSON *lt = cJSON_GetObjectItemCaseSensitive(lp, "tvhTest");
+        if (cJSON_GetObjectItemCaseSensitive(lt, "pass"))
+            cJSON_ReplaceItemInObjectCaseSensitive(lt, "pass", cJSON_CreateString("***"));
         char *ls = lp ? cJSON_PrintUnformatted(lp) : NULL;
         mt_log("[app] TVF starting, parameters %s", ls ? ls : "{}");
         free(ls);
@@ -1805,6 +1871,15 @@ int main(int argc, char *argv[]) {
     }
     char host[128];
     cfg_get("tvh.host", host, sizeof(host));
+    {
+        const cJSON *t = cJSON_GetObjectItemCaseSensitive(params, "tvhTest");
+        if (cJSON_IsObject(t)) {
+            g_tvh_test = cJSON_Duplicate(t, 1);
+            if (cJSON_GetObjectItemCaseSensitive(g_tvh_test, "host"))
+                snprintf(host, sizeof(host), "%s", jstr(g_tvh_test, "host"));
+            mt_log("[app] test: tvh server and login of this run from tvhTest (not saved)");
+        }
+    }
     mt_log("[app] tvh %s (HTTP %d, HTSP %d)", host[0] ? host : "(not set)", cfg_int("tvh.http_port"),
            cfg_int("tvh.htsp_port"));
     {
@@ -1910,6 +1985,10 @@ int main(int argc, char *argv[]) {
         const cJSON *u = prefs_get("tvh.user"), *pw = prefs_get("tvh.pass");
         if (cJSON_IsString(u)) snprintf(tc.user, sizeof(tc.user), "%s", u->valuestring);
         if (cJSON_IsString(pw)) snprintf(tc.pass, sizeof(tc.pass), "%s", pw->valuestring);
+        if (cJSON_GetObjectItemCaseSensitive(g_tvh_test, "user")) {
+            snprintf(tc.user, sizeof(tc.user), "%s", jstr(g_tvh_test, "user"));
+            snprintf(tc.pass, sizeof(tc.pass), "%s", jstr(g_tvh_test, "pass"));
+        }
         pmtinfo_init(tc.tvh_host, tc.http_port, tc.user, tc.pass);
         {
             /* logos and EPG images from tvh's imagecache: with the TV user */
@@ -1927,7 +2006,8 @@ int main(int argc, char *argv[]) {
                                          .groups_changed = app_groups_changed,
                                          .grid = app_grid,
                                          .schedule = app_schedule,
-                                         .connected = app_connected};
+                                         .connected = app_connected,
+                                         .noaccess = app_noaccess};
         static const tvrec_actions ra = {.recordings = app_recordings,
                                          .timers = app_timers,
                                          .play = app_play_recording,
@@ -2041,8 +2121,12 @@ int main(int argc, char *argv[]) {
     ttx_actions ta = {ttx_zap, sidedata_ttx_initial_page};
     ttx_init(res, &ta);
     choice_init();
-    static const settings_actions sta = {settings_restart, cfg_get};
+    static const settings_actions sta = {settings_restart, cfg_get, app_find};
     settings_init(&sta); /* topmost */
+    if (!host[0]) { /* no server set: look for one in the network */
+        g_find_first = 1;
+        app_find();
+    }
     debugctl_start(debug_port);
     {
         time_t t = time(NULL);
@@ -2096,6 +2180,7 @@ int main(int argc, char *argv[]) {
         }
         char *m;
         tvsrc_poll();
+        if (g_finding) found_servers();
         kodi_poll();
         if (app.ok_pending && SDL_GetTicks() - app.ok_pending > CLICK_DEDUP_MS) {
             app.ok_pending = 0; /* OK key without click: treat as a key */

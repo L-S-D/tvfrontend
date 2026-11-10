@@ -905,6 +905,8 @@ void tvsrc_poll(void) {
             synced = 0;
         } else if (!strcmp(m, "_down")) {
             if (act.connected) act.connected(0);
+        } else if (!strcmp(m, "_noaccess")) {
+            if (act.noaccess) act.noaccess();
         } else if (!strcmp(m, "channelAdd") || !strcmp(m, "channelUpdate")) {
             int id = (int) jnum(j, "channelId");
             tvch *c = map_get(&chans, (uint32_t) id);

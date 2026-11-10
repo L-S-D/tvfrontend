@@ -45,6 +45,7 @@ typedef struct {
      * changes): channel, name, icon, broadcasts (up to 12, 24 h) */
     void (*schedule)(cJSON *schedule);
     void (*connected)(int up); /* connection to tvh (ready or gone) */
+    void (*noaccess)(void);    /* tvh refuses the user (login wrong or missing) */
 } tvsrc_actions;
 
 /* channel/last: remembered channel state (0 = none); ra: for tvrec */

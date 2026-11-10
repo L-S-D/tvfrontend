@@ -37,6 +37,13 @@ static void req(long s, long d) { printf("-> grid request start=%ld dur=%ld\n", 
 static void tune(int ch) { printf("-> tune %d\n", ch); }
 static void rec(int ch, double ev) { printf("-> record %d %.0f\n", ch, ev); }
 static void restart(void) { printf("-> restart\n"); }
+/* server search: two servers at once (documentation addresses) */
+static void find(void) {
+    static const settings_server s[] = {{"Tvheadend \xE2\x80\x93 server (192.0.2.10)", "192.0.2.10", 9981, 9982},
+                                        {"Tvheadend #2 \xE2\x80\x93 backup (192.0.2.11)", "192.0.2.11", 9991, 9992}};
+    printf("-> find\n");
+    settings_servers(s, 2);
+}
 static void current(const char *key, char *out, size_t n) {
     static const char *const v[][2] = {
         {"tvh.host", "192.0.2.10"},    {"tvh.http_port", "9981"}, {"tvh.htsp_port", "9982"},
@@ -118,7 +125,7 @@ int main(int argc, char **argv) {
     recbrowser_actions rba = {NULL, NULL, NULL, NULL};
     recbrowser_init(&rba);
     choice_init();
-    settings_actions sta = {restart, current};
+    settings_actions sta = {restart, current, find};
     settings_init(&sta);
 
     FILE *f = fopen(argv[2], "rb");
@@ -164,6 +171,8 @@ int main(int argc, char **argv) {
             recdlg_on_schedule(m);
         } else if (!strcmp(s, "settings")) {
             settings_open();
+        } else if (!strcmp(s, "noaccess")) {
+            settings_open_at("tvh.user", "The TVH server refused the login - enter user and password");
         } else if (!strcmp(s, "toast")) {
             osd_message("Englisch (Dolby Digital)", 3000, 0);
         } else if (!strcmp(s, "osd")) {
