@@ -1,6 +1,6 @@
 {
     "id": "com.lsd.tvf",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "vendor": "TVF",
     "type": "native",
     "main": "tvf",
