@@ -35,7 +35,7 @@ TVF is a **developer app**: it is installed through the webOS Developer Mode, no
 LG Content Store, and it uses system services that LG does not document for third-party apps.
 A firmware update can therefore break parts of it.
 
-**Currently tested on the LG OLED G4 (OLED77G4, webOS 25) and the LG OLED C8 (OLED77C8,
+**Currently tested on the LG OLED G4 (OLED77G4, webOS 25 and 26) and the LG OLED C8 (OLED77C8,
 webOS 4.4).** Other models and webOS versions are untested.
 
 ## What you need
@@ -72,6 +72,9 @@ Build the `.ipk` yourself (see "Build" below) or use one that somebody built for
     ares-launch  -d tv com.lsd.tvf
 
 Updating is the same `ares-install` again; your settings are kept.
+After a firmware update of the TV (seen with webOS 25 → 26) TVF may hang at its start spinner or not
+start at all: remove it with `ares-install -d tv -r com.lsd.tvf` and install it again. The settings
+are stored outside the app and survive this.
 `ares-launch` does not restart a running app – use `ares-launch -d tv --close com.lsd.tvf` first.
 
 ### 4. Connect to TVheadend
