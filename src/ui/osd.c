@@ -20,7 +20,7 @@ static lv_obj_t *now_time, *now_title, *now_sub, *now_plot, *bar, *now_left;
 static lv_obj_t *next_time, *next_title;
 static lv_obj_t *streams;
 /* reception (tvh) below the logo: provider, bars for SNR and signal, box for the decryption */
-static lv_obj_t *rx_box, *rx_prov, *rx_name[2], *rx_bar[2], *rx_val[2], *rx_ca, *rx_ca_l, *rx_via;
+static rxview *rx_view;
 static osd_rx rx_cur;
 static int rx_have;
 static lv_obj_t *seek_box, *seek_label;
@@ -65,42 +65,7 @@ void osd_init(void) {
     lv_image_set_inner_align(logo, LV_IMAGE_ALIGN_CONTAIN);
 
     /* reception (tvhstat) below the logo; bar colour = quality according to tvh */
-    rx_box = ui_box(panel, 0, LV_OPA_TRANSP, 0);
-    lv_obj_set_pos(rx_box, 28, 156);
-    lv_obj_set_size(rx_box, 222, 196);
-    rx_prov = label(rx_box, 22, 1, C_TEXT);
-    lv_obj_set_pos(rx_prov, 0, 0);
-    lv_obj_set_width(rx_prov, 222);
-    ui_label_dots(rx_prov);
-    for (int k = 0; k < 2; k++) {
-        int y = 38 + k * 30;
-        rx_name[k] = label(rx_box, 18, 0, C_DIM);
-        lv_obj_set_pos(rx_name[k], 0, y + 2);
-        lv_label_set_text(rx_name[k], k ? _("Signal") : "SNR");
-        rx_bar[k] = lv_bar_create(rx_box);
-        lv_obj_set_pos(rx_bar[k], 62, y + 10);
-        lv_obj_set_size(rx_bar[k], 64, 8);
-        lv_bar_set_range(rx_bar[k], 0, 1000);
-        lv_obj_set_style_bg_color(rx_bar[k], lv_color_hex(C_BAR_BG), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(rx_bar[k], LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_radius(rx_bar[k], 4, LV_PART_MAIN);
-        lv_obj_set_style_radius(rx_bar[k], 4, LV_PART_INDICATOR);
-        rx_val[k] = label(rx_box, 20, 0, C_TEXT);
-        lv_obj_set_pos(rx_val[k], 134, y);
-    }
-    rx_ca = ui_box(rx_box, 0, LV_OPA_TRANSP, 4);
-    lv_obj_set_pos(rx_ca, 0, 106);
-    lv_obj_set_size(rx_ca, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_hor(rx_ca, 8, 0);
-    lv_obj_set_style_pad_ver(rx_ca, 2, 0);
-    lv_obj_set_style_border_width(rx_ca, 1, 0);
-    rx_ca_l = label(rx_ca, 18, 1, C_TEXT);
-    lv_obj_set_style_text_letter_space(rx_ca_l, 1, 0);
-    rx_via = label(rx_box, 18, 0, C_DIM);
-    lv_obj_set_pos(rx_via, 0, 144);
-    lv_obj_set_width(rx_via, 222);
-    lv_label_set_long_mode(rx_via, LV_LABEL_LONG_MODE_CLIP);
-    lv_obj_set_height(rx_via, 2 * lv_font_get_line_height(ui_font(18, 0)));
+    rx_view = rxview_create(panel, 28, 156, 0);
 
     num = label(panel, 46, 1, C_ACCENT);
     lv_obj_set_pos(num, 270, 22);
@@ -248,49 +213,9 @@ static void on_logo(void *user, const char *url, const lv_image_dsc_t *dsc) {
     }
 }
 
-static uint32_t rx_color(int level) {
-    return level == 1 ? UI_GREEN : level == 2 ? UI_YELLOW : level == 3 ? UI_RED : UI_BLUE;
-}
-
-static void show(lv_obj_t *o, int on) {
-    if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
-}
-
 static void rx_render(void) {
-    const osd_rx *r = rx_have ? &rx_cur : NULL;
-    show(rx_box, !rec_mode); /* reception only applies live */
-    lv_label_set_text(rx_prov, r ? r->provider : "");
-    const char *val[2] = {r ? r->snr : "", r ? r->signal : ""};
-    float frac[2] = {r ? r->snr_frac : 0, r ? r->signal_frac : 0};
-    for (int k = 0; k < 2; k++) {
-        int on = val[k][0] != 0;
-        show(rx_name[k], on);
-        show(rx_bar[k], on);
-        show(rx_val[k], on);
-        lv_label_set_text(rx_val[k], val[k]);
-        int v = (int) (frac[k] * 1000);
-        lv_bar_set_value(rx_bar[k], v < 0 ? 0 : v > 1000 ? 1000 : v, LV_ANIM_OFF);
-        lv_obj_set_style_bg_color(rx_bar[k], lv_color_hex(rx_color(r ? r->level : 0)), LV_PART_INDICATOR);
-    }
-    char t[96] = "";
-    if (r && r->ca_failed) snprintf(t, sizeof(t), "%s", _("DESCRAMBLING FAILED"));
-    else if (r && r->ca[0]) {
-        snprintf(t, sizeof(t), "%s", r->ca);
-        for (char *p = t; *p; p++)
-            if (*p >= 'a' && *p <= 'z') *p = (char) (*p - 'a' + 'A');
-    }
-    show(rx_ca, t[0] != 0);
-    lv_label_set_text(rx_ca_l, t);
-    lv_obj_set_style_border_color(rx_ca, lv_color_hex(r && r->ca_failed ? UI_RED : 0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(rx_ca, r && r->ca_failed ? LV_OPA_COVER : 90, 0);
-    char v[160] = "";
-    if (r && r->ca[0] && !r->ca_failed)
-        snprintf(v, sizeof(v), "%s%s%s", r->ca_time, r->ca_time[0] && r->ca_via[0] ? " \xC2\xB7 " : "", r->ca_via);
-    if (r && r->error[0]) snprintf(v + strlen(v), sizeof(v) - strlen(v), "%stvh: %s", v[0] ? "\n" : "", r->error);
-    if (r && r->errs[0] && !r->error[0])
-        snprintf(v + strlen(v), sizeof(v) - strlen(v), "%s%s", v[0] ? "\n" : "", r->errs);
-    lv_label_set_text(rx_via, v);
+    rxview_show(rx_view, !rec_mode); /* reception only applies live */
+    rxview_set(rx_view, rx_have ? &rx_cur : NULL, NULL);
 }
 
 void osd_set_rx(const osd_rx *rx) {

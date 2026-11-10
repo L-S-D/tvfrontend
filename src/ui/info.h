@@ -3,13 +3,16 @@
  * Info window for the current (and next) programme: the banner enlarged
  * upwards - header as in the banner, title, subtitle, additional details
  * (genre, episode, year, age rating, duration), the whole long text and the
- * image from the tvh EPG, if there is one. Right/Left switches between
+ * image from the tvh EPG, if there is one; below the logo the reception (provider,
+ * signal, quality, encryption) and the DVB ids. Right/Left switches between
  * current and next programme, Up/Down scrolls the text. Open until
  * Back/OK/Yellow. Main thread only.
  */
 #pragma once
 
 #include <stdint.h>
+
+#include "rxview.h"
 
 typedef struct {
     uint32_t id; /* programme (for REC), 0 = unknown */
@@ -31,6 +34,9 @@ typedef struct {
 
 void info_init(void);
 void info_open(const info_data *d);
+/* reception below the logo as in the banner, with quality line and DVB ids
+ * ("1 · 1057 · 61201"); also while open: values from tvh come and go. rx NULL = none */
+void info_set_rx(const osd_rx *rx, const char *ids);
 void info_close(void);
 int info_visible(void);
 

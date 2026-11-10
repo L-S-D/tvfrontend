@@ -5,6 +5,8 @@
  */
 #pragma once
 
+#include "rxview.h"
+
 typedef struct {
     char title[256];
     char subtitle[256];
@@ -22,20 +24,6 @@ void osd_get_nownext(epg_entry *now, epg_entry *next); /* last set */
  * the current one highlighted (current, -1 = none). video NULL/"" and n 0 =
  * empty row. Unchanged details redraw nothing. */
 void osd_set_streams(const char *video, const char *const *audio, int n, int current);
-/* reception of the current channel (tvh, preformatted) */
-typedef struct {
-    char provider[64];
-    int level;            /* quality: 0 unknown, 1 good, 2 weak, 3 bad/none */
-    char snr[24];         /* "16,8 dB", "" = none */
-    char signal[24];      /* "−65 dBm", "" = none */
-    float snr_frac, signal_frac; /* 0..1 for bars */
-    char errs[24];        /* "UNC 12", "" = none */
-    char ca[40];          /* "Nagra 1830", "" = no decryption reported */
-    char ca_time[16];     /* "305 ms" */
-    char ca_via[40];      /* reader or "via newcamd" */
-    int ca_failed;
-    char error[64];       /* message from tvh */
-} osd_rx;
 /* below the logo: provider, bars for SNR and signal (colour = quality),
  * box for the decryption; NULL = none */
 void osd_set_rx(const osd_rx *rx);

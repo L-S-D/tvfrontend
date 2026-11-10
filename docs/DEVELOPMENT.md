@@ -55,7 +55,10 @@ installation and usage are in the [README](../README.md).
   Magic Remote pointer hidden): the banner
   enlarged upwards with title, subtitle, additional details (genre, episode, year,
   age rating, duration), the full long description and the image from the tvh EPG,
-  if there is one; right/left switch between current ↔ next programme, up/down
+  if there is one; below the logo the reception as in the banner (provider, SNR and signal
+  bars in the colour of the quality, a quality line with status, BER and UNC, the
+  decryption) and the DVB ids (ONID · TSID · SID), updated while it is open;
+  right/left switch between current ↔ next programme, up/down
   scrolls, REC records the programme shown, Back/OK/yellow close it. A short OK
   press keeps its old meaning but acts on release. TVF decodes JPEGs itself (stb, including
   progressive – LVGL's TJPGD only handles baseline)

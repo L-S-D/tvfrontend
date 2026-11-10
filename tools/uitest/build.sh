@@ -17,7 +17,7 @@ if [ ! -f "$B/liblvgl.a" ]; then
   ar rcs "$B/liblvgl.a" "$B"/lvgl/*.o
 fi
 gcc $CF -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined -o "$B/uitest" "$H/uitest.c" \
-  "$R/src/ui/epg.c" "$R/src/ui/choice.c" "$R/src/ui/recdlg.c" "$R/src/ui/recbrowser.c" "$R/src/ui/osd.c" "$R/src/ui/settings.c" \
+  "$R/src/ui/epg.c" "$R/src/ui/choice.c" "$R/src/ui/recdlg.c" "$R/src/ui/recbrowser.c" "$R/src/ui/osd.c" "$R/src/ui/rxview.c" "$R/src/ui/settings.c" "$R/src/ui/info.c" \
   "$R/src/ui/ui.c" "$R/src/ui/imgtrim.c" "$R/src/ui/keys.c" "$R/src/core/log.c" "$R/src/core/prefs.c" "$R/src/core/i18n.c" "$R/src/net/http.c" "$R/src/net/md5.c" \
   "$R/third_party/cJSON/cJSON.c" "$B/liblvgl.a" -lssl -lcrypto -lpthread -lm
 echo "built: $B/uitest"

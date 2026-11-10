@@ -533,11 +533,9 @@ static float frac(double v, double lo, double hi) {
     return (float) (f < 0 ? 0 : f > 1 ? 1 : f);
 }
 
-static void show_reception(const tvhstat_info *i) {
-    if (!i->channel_id || i->channel_id != tvsrc_status_channel(app.channel)) {
-        osd_set_rx(NULL);
-        return;
-    }
+/* the reception of the current channel, preformatted (banner, info window); 0 = none */
+static int rx_build(const tvhstat_info *i, osd_rx *out) {
+    if (!i->channel_id || i->channel_id != tvsrc_status_channel(app.channel)) return 0;
     osd_rx r;
     memset(&r, 0, sizeof(r));
     snprintf(r.provider, sizeof(r.provider), "%s", i->provider);
@@ -585,11 +583,42 @@ static void show_reception(const tvhstat_info *i) {
         }
     }
     snprintf(r.error, sizeof(r.error), "%.40s", i->error);
-    osd_set_rx(&r);
+    *out = r;
+    return 1;
 }
 
-/* subscription for reception info: current DVB channel live with picture (then tvh
- * shares the service), otherwise none */
+static tvhstat_info rx_last; /* the last reception state (also for the info window) */
+
+static void show_reception(const tvhstat_info *i) {
+    osd_rx r;
+    rx_last = *i;
+    osd_set_rx(rx_build(i, &r) ? &r : NULL);
+}
+
+/* info window: reception (as in the banner, with a quality line) and DVB ids below the logo */
+static void info_rx_update(void) {
+    const tvhstat_info *i = &rx_last;
+    osd_rx r;
+    int have = rx_build(i, &r);
+    if (have) {
+        const char *q = !i->status[0]                 ? ""
+                        : !strcmp(i->status, "GOOD")  ? _("Good")
+                        : !strcmp(i->status, "FAINT") ? _("Weak")
+                        : !strcmp(i->status, "BAD")   ? _("Bad")
+                                                      : _("No signal");
+        size_t o = (size_t) snprintf(r.quality, sizeof(r.quality), "%s", q);
+        if (i->has_ber && o < sizeof(r.quality))
+            o += (size_t) snprintf(r.quality + o, sizeof(r.quality) - o, "%sBER %u", o ? " \xC2\xB7 " : "", i->ber);
+        if (i->has_unc && o < sizeof(r.quality))
+            snprintf(r.quality + o, sizeof(r.quality) - o, "%sUNC %u", o ? " \xC2\xB7 " : "", i->unc);
+    }
+    char ids[48] = "";
+    int onid, tsid, sid;
+    if (player_dvb_ids(app.pl, &onid, &tsid, &sid))
+        snprintf(ids, sizeof(ids), "%d \xC2\xB7 %d \xC2\xB7 %d", onid, tsid, sid);
+    info_set_rx(have ? &r : NULL, ids);
+}
+
 static void reception_tick(void) {
     uint32_t want = 0;
     if (!app.background && !recplay_active() && app.url[0] && !app.hbbtv_live_off) {
@@ -599,7 +628,14 @@ static void reception_tick(void) {
     }
     tvhstat_watch(want);
     tvhstat_info ti;
-    if (tvhstat_get(&ti)) show_reception(&ti);
+    int changed = tvhstat_get(&ti);
+    if (changed) show_reception(&ti);
+    /* info window: with the reception, and once a second (the DVB ids of the PMT lookup come later) */
+    static uint32_t info_at;
+    if (info_visible() && (changed || SDL_GetTicks() - info_at >= 1000)) {
+        info_at = SDL_GetTicks();
+        info_rx_update();
+    }
 }
 
 static void on_play(const tvsrc_play_info *p) {
@@ -903,6 +939,7 @@ static void open_info(void) {
     }
     osd_hide();
     info_open(&d);
+    info_rx_update();
 }
 
 static int tvf_overlay(void) {

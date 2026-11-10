@@ -22,6 +22,7 @@ static lv_obj_t *panel, *logo, *num, *name, *clock_l;
 static lv_obj_t *times, *left, *bar;
 static lv_obj_t *col, *title, *subtitle, *meta, *txt_box, *txt;
 static lv_obj_t *img, *foot, *hint;
+static rxview *rx_view; /* below the logo: reception and DVB ids */
 static info_data D;
 static int showing_next, open_;
 static char logo_url[512], img_url[512];
@@ -126,6 +127,10 @@ void info_init(void) {
     lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
     lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
 
+    /* reception below the logo as in the banner, in detail */
+    rx_view = rxview_create(panel, 28, 172, 1);
+    rxview_set(rx_view, NULL, NULL);
+
     foot = label(panel, 26, 0, UI_DIM);
     lv_obj_set_pos(foot, COL_X, H - 52);
     lv_obj_set_width(foot, 1000);
@@ -133,6 +138,7 @@ void info_init(void) {
     hint = label(panel, 20, 0, UI_DIM);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_RIGHT, -32, -20);
 
+    rxview_set(rx_view, NULL, NULL);
     lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -220,6 +226,8 @@ void info_open(const info_data *d) {
     mt_log("[info] %s: %s (%zu chars of text%s)", D.channel, (showing_next ? D.next : D.now).title,
            strlen((showing_next ? D.next : D.now).text), img_url[0] ? ", image" : "");
 }
+
+void info_set_rx(const osd_rx *rx, const char *ids) { rxview_set(rx_view, rx, ids); }
 
 void info_close(void) {
     if (!open_) return;

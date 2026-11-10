@@ -219,5 +219,9 @@
   "Apply": "Übernehmen",
   "Kodi remote (Kore)": "Kodi-Fernbedienung (Kore)",
   "Name": "Name",
-  "TCP port": "TCP-Port"
+  "TCP port": "TCP-Port",
+  "Good": "Gut",
+  "Weak": "Schwach",
+  "Bad": "Schlecht",
+  "No signal": "Kein Signal"
 }

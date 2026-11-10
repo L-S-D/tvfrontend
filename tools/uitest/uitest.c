@@ -6,6 +6,7 @@
  * "open", "osd", "settings", "shot" (write PNG), D0..D9 digits. */
 #include "choice.h"
 #include "epg.h"
+#include "info.h"
 #include "recdlg.h"
 #include "recbrowser.h"
 #include "settings.h"
@@ -125,6 +126,7 @@ int main(int argc, char **argv) {
     recbrowser_actions rba = {NULL, NULL, NULL, NULL};
     recbrowser_init(&rba);
     choice_init();
+    info_init();
     settings_actions sta = {restart, current, find};
     settings_init(&sta);
 
@@ -171,8 +173,51 @@ int main(int argc, char **argv) {
             recdlg_on_schedule(m);
         } else if (!strcmp(s, "settings")) {
             settings_open();
+        } else if (!strcmp(s, "info")) {
+            /* info window with reception rows (example values) */
+            info_data d;
+            memset(&d, 0, sizeof(d));
+            d.number = 1;
+            snprintf(d.channel, sizeof(d.channel), "ORF1 HD");
+            d.have_now = d.have_next = 1;
+            d.now.start = time(NULL) - 1200;
+            d.now.stop = time(NULL) + 1800;
+            snprintf(d.now.title, sizeof(d.now.title), "Zeit im Bild");
+            snprintf(d.now.meta, sizeof(d.now.meta), "Nachrichten \xC2\xB7 30 min");
+            snprintf(d.now.text, sizeof(d.now.text), "Die wichtigsten Nachrichten des Tages aus dem In- und Ausland.");
+            d.next.start = d.now.stop;
+            d.next.stop = d.now.stop + 3000;
+            snprintf(d.next.title, sizeof(d.next.title), "Wetter");
+            info_open(&d);
+            osd_rx r;
+            memset(&r, 0, sizeof(r));
+            snprintf(r.provider, sizeof(r.provider), "ORF");
+            r.level = 1;
+            snprintf(r.snr, sizeof(r.snr), "14,2 dB");
+            snprintf(r.signal, sizeof(r.signal), "\xE2\x88\x92" "62 dBm");
+            r.snr_frac = 0.71f;
+            r.signal_frac = 0.47f;
+            snprintf(r.ca, sizeof(r.ca), "Cryptoworks 0D96");
+            snprintf(r.ca_time, sizeof(r.ca_time), "35 ms");
+            snprintf(r.ca_via, sizeof(r.ca_via), "Cache");
+            snprintf(r.quality, sizeof(r.quality), "Gut \xC2\xB7 BER 0 \xC2\xB7 UNC 0");
+            info_set_rx(&r, "1 \xC2\xB7 1007 \xC2\xB7 4911");
         } else if (!strcmp(s, "noaccess")) {
             settings_open_at("tvh.user", "The TVH server refused the login - enter user and password");
+        } else if (!strcmp(s, "rx")) {
+            /* reception in the banner (example values as in "info") */
+            osd_rx r;
+            memset(&r, 0, sizeof(r));
+            snprintf(r.provider, sizeof(r.provider), "ORF");
+            r.level = 1;
+            snprintf(r.snr, sizeof(r.snr), "14,2 dB");
+            snprintf(r.signal, sizeof(r.signal), "\xE2\x88\x92" "62 dBm");
+            r.snr_frac = 0.71f;
+            r.signal_frac = 0.47f;
+            snprintf(r.ca, sizeof(r.ca), "Cryptoworks 0D96");
+            snprintf(r.ca_time, sizeof(r.ca_time), "35 ms");
+            snprintf(r.ca_via, sizeof(r.ca_via), "Cache");
+            osd_set_rx(&r);
         } else if (!strcmp(s, "toast")) {
             osd_message("Englisch (Dolby Digital)", 3000, 0);
         } else if (!strcmp(s, "osd")) {

@@ -40,7 +40,7 @@ add_executable(tvf
     src/player/mpa_pcm.c
     src/player/smp_api.cpp
     src/ui/ui.c src/ui/ui_sdl.c src/ui/epg.c src/ui/keys.c src/app/keys_sdl.c
-    src/ui/osd.c src/ui/info.c src/ui/settings.c src/ui/choice.c src/ui/recdlg.c src/ui/recbrowser.c src/core/prefs.c src/core/i18n.c src/app/debugctl.c
+    src/ui/osd.c src/ui/rxview.c src/ui/info.c src/ui/settings.c src/ui/choice.c src/ui/recdlg.c src/ui/recbrowser.c src/core/prefs.c src/core/i18n.c src/app/debugctl.c
     src/app/recindex.c src/app/recplay.c src/ui/ttx.c src/ui/subs.c src/net/fetch.c src/app/tshift.c
     src/app/sidedata.c src/core/ttxdec.c src/core/dvbsubdec.c
     src/app/luna.c src/app/hbbtv.c src/app/tvsrc.c src/app/tvrec.c src/app/kodi.c src/net/mdns.c src/app/tvhstat.c src/net/htsp.c src/net/htsmsg.c src/net/sha1.c
