@@ -82,6 +82,10 @@
 #define CLICK_DEDUP_MS 150
 #define OSD_ZAP_MS 6000
 #define HBB_PRELOAD_MS 5000 /* this long on a channel: preload its HbbTV app */
+/* the page's stop() takes effect this late: Anixe calls stop() and
+ * bindToCurrentChannel() 40-70 ms apart whenever it moves the picture -
+ * stopping and restarting the subscription each time was ~0.4 s without picture */
+#define HBB_BC_OFF_MS 500
 #define OSD_INFO_MS 8000
 #define STALL_MS 10000     /* this long without a new frame although the stream is flowing: reconnect */
 #define RETRY_HINT_MS 3000 /* this long without a reply from tvh: hint "not responding" */
@@ -123,6 +127,7 @@ typedef struct {
     int hbbtv_live_off;   /* live picture stopped: HbbTV media playing instead of live */
     int hbb_media_on;     /* ... because the page's media are playing */
     int hbb_bc_off;       /* ... because the page stopped the TV picture */
+    uint32_t hbb_bc_off_at; /* the page's stop() pending until then (HBB_BC_OFF_MS), 0 = none */
     int hbb_prestarted;
     int pointer;
     uint32_t mouse_at, ok_pending;
@@ -1087,9 +1092,27 @@ static void hbb_media(int playing) {
 }
 
 static void hbb_broadcast(int on) {
+    if (on && app.hbb_bc_off_at) {
+        app.hbb_bc_off_at = 0; /* stopped and bound again at once: the picture keeps running */
+        mt_log("[app] HbbTV: TV picture stopped and back at once - left running");
+        return;
+    }
+    if (!on && !app.hbb_bc_off) {
+        if (!app.hbb_bc_off_at) app.hbb_bc_off_at = (SDL_GetTicks() + HBB_BC_OFF_MS) | 1;
+        return;
+    }
     if (app.hbb_bc_off == !on) return;
     app.hbb_bc_off = !on;
-    mt_log("[app] HbbTV: TV picture %s", on ? "back" : "stopped by the app");
+    mt_log("[app] HbbTV: TV picture back");
+    hbb_live_apply();
+}
+
+/* main loop: a pending stop() of the page takes effect */
+static void hbb_broadcast_tick(void) {
+    if (!app.hbb_bc_off_at || (int32_t) (SDL_GetTicks() - app.hbb_bc_off_at) < 0) return;
+    app.hbb_bc_off_at = 0;
+    app.hbb_bc_off = 1;
+    mt_log("[app] HbbTV: TV picture stopped by the app");
     hbb_live_apply();
 }
 
@@ -1152,6 +1175,7 @@ static void hbb_source(int w, int h) { player_set_video_source(app.pl, w, h); }
 
 static void hbb_closed(void) {
     app.hbb_bc_off = 0; /* without an app the TV picture applies again */
+    app.hbb_bc_off_at = 0;
     app.hbb_pre_at = SDL_GetTicks() + HBB_PRELOAD_MS; /* if the user stays on the channel: preload again */
     /* WebKit was playing itself: the media server returns the live picture
      * once WebKit's pipeline is gone (otherwise both would fight over the decoder) */
@@ -2371,6 +2395,7 @@ int main(int argc, char *argv[]) {
         recplay_tick();
         info_tick();
         hbbweb_poll();
+        hbb_broadcast_tick();
         hbbmedia_poll();
         webmedia_poll();
         hbbdrm_poll();

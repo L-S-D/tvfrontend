@@ -154,7 +154,17 @@ reports `video/broadcast` `stop()` and `setChannel(null)` (TV picture off),
 URL (`createApplication`, broadcast-independent: no TV picture). TVF keeps this state
 for the whole HbbTV session, across page loads and after the app's own videos, until
 the app brings the picture back or HbbTV is closed – catch-up services no longer show the
-running programme between their videos.
+running programme between their videos. `stop()` takes effect after 0.5 s: Anixe calls
+`stop()` and `bindToCurrentChannel()` 40–70 ms apart whenever it moves the picture, and
+restarting the subscription each time left ~0.4 s without picture. After
+`bindToCurrentChannel()` the video rectangle is taken at the next frame, when the app has
+sized the object (Anixe binds first, sizes afterwards).
+
+With TVF's renderer (`features`: `video-hole`) the `video/broadcast` object carries
+`tvf-hole` and its own layer, so the compositor cuts away everything below it, as on a TV:
+backgrounds of elements that are not its ancestors too (Anixe's film list hid the picture
+before). The plugin objects stay hidden by CSS, the broadcast object not (an invisible element
+punches no hole). Older bundles: the clip-path / background approximation in `polyfill.js`.
 
 The channel object of `video/broadcast` carries the DVB ids (onid, tsid, sid; broadcaster
 apps pick their content by them). A tvh with the HTSP extension sends them in the
