@@ -2205,7 +2205,9 @@ int main(int argc, char *argv[]) {
         const cJSON *wb = prefs_get("web.bundle"), *eg = prefs_get("hbbtv.egress");
         web_bundle(res, cJSON_IsString(wb) ? wb->valuestring : NULL, hc.bundle, sizeof(hc.bundle));
         snprintf(hc.data_dir, sizeof(hc.data_dir), "/media/developer/temp/com.lsd.tvf/web");
-        /* fixed proxy only on request (hbbtvEgress), otherwise country rules */
+        /* fixed proxy (hbbtvEgress): WebKit goes to it directly only when
+         * the relay does not run; otherwise the relay decides per channel
+         * (tvh tag before the setting, egress.c) */
         if (cJSON_IsString(eg) && strcmp(eg->valuestring, "rules"))
             snprintf(hc.proxy, sizeof(hc.proxy), "%s", strcmp(eg->valuestring, "direct") ? eg->valuestring : "");
         /* OIPF replacement and dash.js from the package (no gateway): the page fetches
@@ -2222,6 +2224,7 @@ int main(int argc, char *argv[]) {
         char egf[600];
         snprintf(egf, sizeof(egf), "%s/hbbtv/egress.json", res);
         egress_load(egf, host);
+        egress_set_mode(cJSON_IsString(eg) ? eg->valuestring : "rules");
         snprintf(egf, sizeof(egf), "%s/hbbtv/entry.json", res);
         hbbtv_load(egf);
         http_set_proxy_resolver(egress_for);

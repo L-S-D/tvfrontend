@@ -335,12 +335,12 @@ static void load_app(const char *url) {
     webr_clear_user_scripts();
     if (us) webr_user_script(us);
     free(us);
-    /* Egress: the relay decides per host according to the country
-     * rules (egress.json, this session's channel rule); a fixed
-     * configured proxy (hbbtvEgress) takes precedence */
+    /* Egress: the relay decides per host (egress.c: the channel's tvh tag,
+     * then the setting - rules, direct or the fixed proxy); the fixed
+     * proxy directly only without the relay */
     char px[200] = "";
-    if (cfg.proxy[0]) snprintf(px, sizeof(px), "%s", cfg.proxy);
-    else if (relay_port()) snprintf(px, sizeof(px), "http://127.0.0.1:%d", relay_port());
+    if (relay_port()) snprintf(px, sizeof(px), "http://127.0.0.1:%d", relay_port());
+    else if (cfg.proxy[0]) snprintf(px, sizeof(px), "%s", cfg.proxy);
     webr_load(S.url, cfg.user_agent, px);
     webr_visible(1);
     mt_log("[hbbweb] loading %s (proxy %s)", S.url, px[0] ? px : "direct");

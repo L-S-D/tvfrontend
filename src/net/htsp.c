@@ -372,6 +372,9 @@ static void *htsp_main(void *arg) {
         hmsg_s64(&m, "epg", 1);
         hmsg_s64(&m, "epgMaxTime", (int64_t) time(NULL) + cfg.epg_window);
         hmsg_str(&m, "language", "ger");
+        /* internal tags too (L-S-D fork, pr/htsp-internal-tags): the HbbTV proxy
+         * tags; other HTSP clients do not see them. Plain tvh ignores the field */
+        hmsg_s64(&m, "internalTags", 1);
         hmsg_s64(&m, "seq", 3);
         pthread_mutex_lock(&wmu);
         int r = send_msg(s, &m);

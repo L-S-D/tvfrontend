@@ -44,6 +44,12 @@ static int g_ntag;
 static char g_tag_proxy[256]; /* egress of the current channel according to its tag */
 static int g_tag_cur;         /* 1 = a tag applies to the current channel */
 
+/* the "Internet access" setting for channels without a tag: the file's
+ * rules, direct, or one fixed proxy (set once at the start) */
+enum { MODE_RULES, MODE_DIRECT, MODE_FIXED };
+static int g_mode = MODE_RULES;
+static char g_fixed[256];
+
 /* Egress from the file -> proxy URL ("" = direct) */
 static char *resolve(const cJSON *egress, const char *v, const char *host) {
     const char *u = v;
@@ -128,12 +134,14 @@ void egress_set_channel(const char *name) {
             snprintf(g_tag_proxy, sizeof(g_tag_proxy), "%s", g_tag[i].proxy);
         }
     snprintf(g_cur_name, sizeof(g_cur_name), "%s", name ? name : "");
-    int tag = g_tag_cur;
+    int tag = g_tag_cur, mode = g_mode;
     char tp[256];
-    snprintf(tp, sizeof(tp), "%s", g_tag_proxy);
+    snprintf(tp, sizeof(tp), "%s", tag ? g_tag_proxy : g_fixed);
     pthread_mutex_unlock(&g_lock);
     if (name && *name) {
         if (tag) mt_log("[egress] channel %s: %s (tvh tag)", name, tp[0] ? tp : "direct");
+        else if (mode == MODE_FIXED) mt_log("[egress] channel %s: %s (fixed proxy)", name, tp);
+        else if (mode == MODE_DIRECT) mt_log("[egress] channel %s: direct (setting)", name);
         else
             mt_log("[egress] channel %s: %s", name,
                    idx < 0 ? "no channel rule (host rules)" : g_chan[idx].proxy[0] ? g_chan[idx].proxy : "direct");
@@ -154,21 +162,57 @@ static int local_host(const char *h) {
            !strncmp(h, "172.16.", 7);
 }
 
+/* host:port is enough for a proxy: adds http:// (malloc) */
+static char *with_scheme(char *p) {
+    if (!p || !*p || strstr(p, "://")) return p;
+    char *u = malloc(strlen(p) + 8);
+    if (u) sprintf(u, "http://%s", p);
+    free(p);
+    return u;
+}
+
+void egress_set_mode(const char *setting) {
+    char *fixed = NULL;
+    int mode = MODE_RULES;
+    if (setting && !strcasecmp(setting, "direct")) mode = MODE_DIRECT;
+    else if (setting && *setting && strcasecmp(setting, "rules")) {
+        mode = MODE_FIXED;
+        fixed = with_scheme(strdup(setting));
+    }
+    if (mode == MODE_FIXED && !fixed) mode = MODE_DIRECT;
+    pthread_mutex_lock(&g_lock);
+    g_mode = mode;
+    snprintf(g_fixed, sizeof(g_fixed), "%s", fixed ? fixed : "");
+    pthread_mutex_unlock(&g_lock);
+    mt_log("[egress] channels without a tvh tag: %s",
+           mode == MODE_RULES ? "rules (egress.json)" : mode == MODE_DIRECT ? "direct" : fixed);
+    free(fixed);
+}
+
+/* Order: local hosts direct > in rules mode the file's host exceptions >
+ * the current channel's tvh tag > the setting: the file's channel and host
+ * rules, direct, or the fixed proxy */
 const char *egress_for(const char *host, char *buf, size_t n) {
     buf[0] = 0;
     if (!host || !*host || local_host(host)) return buf;
-    const char *p = match_host(g_over, g_nover, host);
+    pthread_mutex_lock(&g_lock);
+    int mode = g_mode;
+    const char *p = mode == MODE_RULES ? match_host(g_over, g_nover, host) : NULL;
     if (!p) {
-        pthread_mutex_lock(&g_lock);
         if (g_tag_cur) {
             snprintf(buf, n, "%s", g_tag_proxy);
             pthread_mutex_unlock(&g_lock);
             return buf;
         }
-        if (g_cur >= 0) p = g_chan[g_cur].proxy;
-        pthread_mutex_unlock(&g_lock);
+        if (mode == MODE_FIXED) {
+            snprintf(buf, n, "%s", g_fixed);
+            pthread_mutex_unlock(&g_lock);
+            return buf;
+        }
+        if (mode == MODE_RULES && g_cur >= 0) p = g_chan[g_cur].proxy;
     }
-    if (!p) p = match_host(g_routes, g_nroutes, host);
+    pthread_mutex_unlock(&g_lock);
+    if (!p && mode == MODE_RULES) p = match_host(g_routes, g_nroutes, host);
     if (p) snprintf(buf, n, "%s", p);
     return buf;
 }
@@ -177,7 +221,8 @@ const char *egress_channel_proxy(char *buf, size_t n) {
     buf[0] = 0;
     pthread_mutex_lock(&g_lock);
     if (g_tag_cur) snprintf(buf, n, "%s", g_tag_proxy);
-    else if (g_cur >= 0) snprintf(buf, n, "%s", g_chan[g_cur].proxy);
+    else if (g_mode == MODE_FIXED) snprintf(buf, n, "%s", g_fixed);
+    else if (g_mode == MODE_RULES && g_cur >= 0) snprintf(buf, n, "%s", g_chan[g_cur].proxy);
     pthread_mutex_unlock(&g_lock);
     return buf;
 }
@@ -198,16 +243,8 @@ char *egress_tag_proxy(const char *name, const char *icon) {
     pthread_mutex_lock(&g_lock);
     char *p = resolve(g_egress, v, g_host);
     pthread_mutex_unlock(&g_lock);
-    /* host:port is enough (with http:// tvh turned it into an imagecache link) */
-    if (p && *p && !strstr(p, "://")) {
-        char *u = malloc(strlen(p) + 8);
-        if (u) {
-            sprintf(u, "http://%s", p);
-            free(p);
-            p = u;
-        }
-    }
-    return p;
+    /* host:port is enough (in the icon field tvh turns a URL into an imagecache link) */
+    return with_scheme(p);
 }
 
 void egress_set_tag_rules(const char *const *channels, const char *const *proxies, int n) {

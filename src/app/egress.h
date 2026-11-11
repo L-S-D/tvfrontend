@@ -15,13 +15,21 @@
 /* Load the rules; host replaces {host} in the proxy addresses. 0 = ok */
 int egress_load(const char *path, const char *host);
 
+/* The "Internet access" setting (hbbtv.egress) for the channels without a
+ * tvh tag: "rules" (this file's rules), "direct" or a proxy URL (host:port
+ * is enough). Call once after egress_load. */
+void egress_set_mode(const char *setting);
+
 /* Channel rules from tvh tags (tvsrc.c, via HTSP): a tag whose name starts
- * with "HbbTV-Proxy" applies to its channels before the name rules.
+ * with "HbbTV-Proxy" (any case) applies to its channels before the setting;
+ * only the host exceptions of the file's rules come first.
  * egress_tag_proxy: a tag's egress (malloc) from the icon field
  * (host:port, proxy URL, name from "egress" or "direct", "" = direct),
- * with an empty icon from the rest of the name ("HbbTV-Proxy DE"); NULL = not a
- * proxy tag. The tag must be "private" (internal tags are not sent via
- * HTSP) and be listed in the TV user's access entry. */
+ * with an empty icon from the rest of the name ("hbbtv-proxy
+ * http://host:port", "HbbTV-Proxy DE"); NULL = not a proxy tag.
+ * tvh sends the tag when it is internal and tvh has the internal-tags
+ * extension of the L-S-D fork (tvsrc.c asks for it), otherwise it must be
+ * "private" and listed in the TV user's access entry. */
 char *egress_tag_proxy(const char *name, const char *icon);
 
 /* replaces all tag rules: channel name -> proxy ("" = direct) */

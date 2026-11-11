@@ -190,21 +190,35 @@ launch parameters except the setting ones are kept), Back/Cancel discards.
 | Search for servers | – | OK: mDNS query for `_htsp._tcp` (tvh's Avahi announcement, `mdns.c`), 1.5 s; left/right picks a server found and fills address and ports |
 | TVheadend server address, HTTP/HTSP port | – (build option `TVF_DEFAULT_TVH_HOST`), 9981, 9982 | without an address TVF searches at the start: exactly one server is taken (restart), else the page opens |
 | User, password | – | tvh login for HTSP and streams (password masked); a refused login (tvh `noaccess`, not the connection limit) opens the page here once per start |
-| Internet access (HbbTV) | Rules per channel | `egress.json`; or direct, or one fixed proxy |
+| Internet access (HbbTV) | Rules per channel | `egress.json`; or direct, or one fixed proxy – for the channels without a proxy tag from tvh |
 
 The proxies and the channel → proxy rules (`egress.json`, empty by default, own
 rules from `res/hbbtv/egress.local.json`, see "Build options") are not editable on the TV.
 
-Proxy per channel from tvh channel tags (`tvsrc.c` → `egress.c`, before the name
-rules of `egress.json`): a tag whose name starts with `HbbTV-Proxy` assigns its
-channels a proxy – the tag's icon field (`host:port`, `http://` is added, an `egress`
-name such as `DE`, or `direct`), or, with an empty icon, the rest of the name
-(`HbbTV-Proxy DE`). TVF gets the tag over HTSP (tagAdd: name, icon, members) and
-does not show it as a channel group. Mark the tag *private* (not internal – internal
-tags are not sent over HTSP) and allow it in the TV user's access entry; keep in mind
-that tvh merges all access entries matching user *and* address. Write `host:port`
-without `http://`: tvh turns a URL in the icon field into an `imagecache/<n>` link
-over HTSP.
+Proxy per channel from tvh channel tags (`tvsrc.c` → `egress.c`): a tag whose name
+starts with `HbbTV-Proxy` (any case) assigns its channels a proxy – the rest of the
+name (`hbbtv-proxy http://192.0.2.10:8906`, `hbbtv-proxy 192.0.2.10:8906`,
+`HbbTV-Proxy DE` with an `egress` name, `hbbtv-proxy direct`) or, if set, the tag's
+icon field. Write `host:port` without `http://` there: tvh turns a URL in the icon
+field into an `imagecache/<n>` link over HTSP. The tag wins over the *Internet
+access* setting, which applies to the channels without one; with *Rules per
+channel* only the host exceptions (`overrides`) of `egress.json` come first. TVF
+gets the tag over HTSP (tagAdd: name, icon, members) and does not show it as a
+channel group. TVF reads the proxy tags on the HTTP requests of the HbbTV page, its
+videos and licences (the WebKit page always goes through TVF's relay, also with a
+fixed proxy).
+
+Which tags reach TVF:
+
+- **tvheadend fork `L-S-D/tvheadend`** (branch `pr/htsp-internal-tags`, in `v3/*`):
+  make the tag *internal*. TVF asks for internal tags (`internalTags` in
+  `enableAsyncMetadata`, `htsp.c`); tvh sends them only to clients that ask, so Kodi
+  and other HTSP clients see neither the tag nor any change to their channels and
+  groups. Internal tags are never shown as channel groups in TVF.
+- **plain tvheadend**: internal tags are not sent over HTSP. Mark the tag *private*
+  instead and allow it in the TV user's access entry; keep in mind that tvh merges
+  all access entries matching user *and* address, and that other clients of that
+  user see the tag as a group.
 
 With HTSP the HbbTV AIT comes from the subscription too: tvh sends the AIT PID as a
 stream of type `HBBTV` whose packets are the raw AIT sections (without CRC);

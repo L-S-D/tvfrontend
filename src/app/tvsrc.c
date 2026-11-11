@@ -130,7 +130,10 @@ typedef struct {
     uint32_t *mem;
     int nmem;
     char *proxy; /* HbbTV proxy tag (egress.c): egress, not a channel group */
+    int internal; /* internal tvh tag (fork extension): never a channel group */
 } tvtag;
+
+static int tag_is_group(const tvtag *t) { return !t->proxy && !t->internal; }
 
 typedef struct {
     uint32_t id, event;
@@ -334,6 +337,8 @@ static void tag_apply(const cJSON *j) {
         map_put(&tags, id, t);
     }
     setstr(&t->name, jstr(j, "tagName"));
+    /* tagAdd/tagUpdate carry the whole tag: without tagInternal it is not (or no longer) internal */
+    if (cJSON_GetObjectItemCaseSensitive(j, "tagName")) t->internal = jnum(j, "tagInternal") != 0;
     if (cJSON_GetObjectItemCaseSensitive(j, "tagName") || cJSON_GetObjectItemCaseSensitive(j, "tagIcon")) {
         free(t->proxy);
         t->proxy = egress_tag_proxy(t->name, jstr(j, "tagIcon"));
@@ -542,7 +547,7 @@ static int cmp_tag(const void *a, const void *b); /* further below (grid) */
 int tvsrc_groups(uint32_t *ids, const char **names, int max) {
     const tvtag **v = tags.n ? malloc(sizeof(tvtag *) * tags.n) : NULL;
     int n = 0;
-    MAP_EACH(tags, i) if (v && !((tvtag *) tags.v[i])->proxy) v[n++] = tags.v[i];
+    MAP_EACH(tags, i) if (v && tag_is_group(tags.v[i])) v[n++] = tags.v[i];
     if (n > 1) qsort(v, (size_t) n, sizeof(*v), cmp_tag);
     int k = 0;
     for (int i = 0; i < n && k < max; i++, k++) {
@@ -715,7 +720,7 @@ static void send_grid(int64_t ws, int64_t dur) {
     cJSON *rows = cJSON_AddArrayToObject(j, "channels");
     tvtag **tl = malloc(sizeof(tvtag *) * (tags.n + 1));
     size_t nt = 0;
-    MAP_EACH(tags, i) if (tl && !((tvtag *) tags.v[i])->proxy) tl[nt++] = tags.v[i];
+    MAP_EACH(tags, i) if (tl && tag_is_group(tags.v[i])) tl[nt++] = tags.v[i];
     if (tl) qsort(tl, nt, sizeof(*tl), cmp_tag);
     u32map grouped = {0};
     int nrows = 0;
@@ -955,7 +960,7 @@ void tvsrc_poll(void) {
             }
             proxy_tags_push();
             size_t ngroups = 0;
-            MAP_EACH(tags, i) ngroups += !((tvtag *) tags.v[i])->proxy;
+            MAP_EACH(tags, i) ngroups += tag_is_group(tags.v[i]);
             mt_log("[tvsrc] ready: %d channels, %zu groups, %zu events (%zu with image, channels%s), %zu DVR entries",
                    nsorted, ngroups, events.n, nimg, with[0] ? with : " none", dvrs.n);
             if (act.connected) act.connected(1);

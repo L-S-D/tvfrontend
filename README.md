@@ -122,6 +122,11 @@ In tvheadend:
   *Recently used muxes kept warm* (0 = off).
 - Every warm mux holds a tuner, with a low weight: recordings and viewers still get it when needed.
 
+The fork can also choose the HbbTV proxy per channel: put channels into an *internal* channel tag
+named `hbbtv-proxy <proxy URL>` (or `hbbtv-proxy direct`). TVF sends their HbbTV traffic through that
+proxy, before the *Internet access* setting; Kodi and other clients do not see the tag. Details in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
 ## Build
 
 TVF is cross-compiled for the TV with the webOS buildroot toolchain.
