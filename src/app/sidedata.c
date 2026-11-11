@@ -478,9 +478,10 @@ static int local_get(const char *path, char **body, size_t *len) {
             uint64_t since = qparam(q, "since", v, sizeof(v)) ? strtoull(v, NULL, 10) : 0;
             status = reply(body, len, ttxdec_subtitles_json(g_ttx, page, since), 500);
         } else {
-            /* according to tvh or the PMT: only the programme's pages (a shared
-             * teletext also carries those of other channels); otherwise all with
-             * the subtitle bit */
+            /* only the pages tvh or the PMT announce: a shared teletext (ORF)
+             * carries the subtitle bit on other programmes' pages too, and Das
+             * Erste announces DVB subtitles only (bit on 150 German, 799
+             * Danish, 775 empty) */
             pmtinfo_page pp[MAX_TTXSUB];
             int np = g_nttxsub;
             const char *source = "tvh";
@@ -490,22 +491,18 @@ static int local_get(const char *path, char **body, size_t *len) {
                 snprintf(pp[i].lang, sizeof(pp[i].lang), "%s", g_ttxsub[i].lang);
             }
             if (!np) {
-                np = pmtinfo_pages(g_channel, pp, MAX_TTXSUB);
+                np = pmtinfo_pages(g_channel, pp, MAX_TTXSUB); /* -1: not known (yet) */
                 source = "pmt";
             }
-            if (np > 0) {
-                strbuf j = {0};
-                sb_add(&j, "{\"pages\":[");
-                for (int i = 0; i < np; i++) sb_addf(&j, "%s\"%03X\"", i ? "," : "", pp[i].page);
-                sb_add(&j, "],\"info\":[");
-                for (int i = 0; i < np; i++)
-                    sb_addf(&j, "%s{\"page\":\"%03X\",\"lang\":\"%s\",\"type\":%d}", i ? "," : "", pp[i].page,
-                            pp[i].lang, pp[i].type);
-                sb_addf(&j, "],\"source\":\"%s\"}", source);
-                status = reply(body, len, sb_take(&j, NULL), 500);
-            } else {
-                status = reply(body, len, ttxdec_subtitle_pages_json(g_ttx), 500);
-            }
+            strbuf j = {0};
+            sb_add(&j, "{\"pages\":[");
+            for (int i = 0; i < np; i++) sb_addf(&j, "%s\"%03X\"", i ? "," : "", pp[i].page);
+            sb_add(&j, "],\"info\":[");
+            for (int i = 0; i < np; i++)
+                sb_addf(&j, "%s{\"page\":\"%03X\",\"lang\":\"%s\",\"type\":%d}", i ? "," : "", pp[i].page,
+                        pp[i].lang, pp[i].type);
+            sb_addf(&j, "],\"source\":\"%s\"}", source);
+            status = reply(body, len, sb_take(&j, NULL), 500);
         }
     } else if (!strcmp(what, "pages")) {
         status = reply(body, len, ttxdec_pages_json(g_ttx), 500);

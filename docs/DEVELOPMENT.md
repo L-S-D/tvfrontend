@@ -33,8 +33,10 @@ installation and usage are in the [README](../README.md).
   channel once briefly as HTTP stream with the pass profile, reads PAT/PMT with its stream demuxer
   (`pmtinfo.c`, merged into the stream list by `player_merge_pmt()`; same service, no second
   tuner). A tvh with the extensions needs no such lookup (TVF notices from the stream list).
-  A shared teletext (ORF) carries the subtitle bit on other programmes' pages too; without PMT
-  pages all pages with the bit are offered as before. Build option `TVF_PMT_FALLBACK` (CMake,
+  Pages the PMT does not announce are not offered, whatever their subtitle bit says: a shared
+  teletext (ORF) carries it on other programmes' pages too, and Das Erste announces only its DVB
+  subtitles (the bit is on 150 German, 799 Danish, 775 empty). Labels as for DVB: language,
+  "(hard of hearing)" for type 5, "(teletext)". Build option `TVF_PMT_FALLBACK` (CMake,
   default ON) – OFF leaves the lookup out
 * Audio: AC-3/E-AC-3/AAC directly, MP2 via minimp3 as PCM
 * First picture after switching ~0.4–0.5 s (free-to-air), ~0.65–0.85 s (HD+);

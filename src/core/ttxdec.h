@@ -40,13 +40,11 @@ int ttxdec_page_count(ttxdec *t);
  *           "links":[6 pages or null]|null,"fastext":true,"rows":[25 x
  *           {"t","fg","bg","a"[,"hide"]}]} - NULL = page not there;
  *           sub = subpage code, -1 = last received
- *   subtitle_pages: {"pages":["150",...]}
  *   subtitles: {"page":"150","epoch":E,"events":[{"seq","pts","lines":[{"t","c","r"}]}],"next":N}
  * epoch changes with ttxdec_clear_events (the client then discards its
  * events); seq and epoch are unique across all decoders */
 char *ttxdec_pages_json(ttxdec *t);
 char *ttxdec_page_json(ttxdec *t, int page, int sub);
-char *ttxdec_subtitle_pages_json(ttxdec *t);
 char *ttxdec_subtitles_json(ttxdec *t, int page, uint64_t since);
 
 /* rows 0..24 as text (mosaic as spaces), for tests: n rows of 160 bytes each */

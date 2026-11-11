@@ -625,23 +625,6 @@ int ttxdec_page_text(ttxdec *t, int page, int sub, char rows[25][160]) {
     return s != NULL;
 }
 
-char *ttxdec_subtitle_pages_json(ttxdec *t) {
-    strbuf j = {0};
-    sb_add(&j, "{\"pages\":[");
-    if (t) {
-        pthread_mutex_lock(&t->lock);
-        uint16_t p[MAX_SUBPAGES];
-        int n = 0;
-        for (int i = 0; i < MAX_SUBPAGES; i++)
-            if (t->subp[i].page) p[n++] = (uint16_t) t->subp[i].page;
-        pthread_mutex_unlock(&t->lock);
-        qsort(p, (size_t) n, sizeof(p[0]), cmp_u16);
-        for (int i = 0; i < n; i++) sb_addf(&j, "%s\"%03X\"", i ? "," : "", p[i]);
-    }
-    sb_add(&j, "]}");
-    return sb_take(&j, NULL);
-}
-
 char *ttxdec_subtitles_json(ttxdec *t, int page, uint64_t since) {
     strbuf j = {0};
     uint64_t next = since;

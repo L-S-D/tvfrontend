@@ -330,16 +330,13 @@ static void on_ttx_list(void *user, int status, const char *body, size_t len) {
         if (nopts >= SUBS_MAX || !cJSON_IsString(p)) break;
         subs_option *o = &opts[nopts++];
         snprintf(o->id, sizeof(o->id), "%s", p->valuestring);
-        /* details from the PMT (language, type): without page number */
+        /* only pages tvh or the PMT announce (sidedata.c), labelled as the
+         * DVB ones; without a language the page number */
         const cJSON *e, *pi = NULL;
         cJSON_ArrayForEach(e, info) if (!strcmp(jstr(e, "page"), p->valuestring)) pi = e;
-        if (pi && jstr(pi, "lang")[0]) {
-            snprintf(o->label, sizeof(o->label), (int) jnum(pi, "type") == 5 ? _("Subtitles %s for the hard of hearing")
-                                                                              : _("Subtitles %s"),
-                     lang_name(jstr(pi, "lang")));
-        } else {
-            snprintf(o->label, sizeof(o->label), _("Subtitles %s (teletext)"), p->valuestring);
-        }
+        const char *lang = pi ? jstr(pi, "lang") : "";
+        snprintf(o->label, sizeof(o->label), _("Subtitles %s%s (teletext)"), lang[0] ? lang_name(lang) : p->valuestring,
+                 pi && (int) jnum(pi, "type") == 5 ? _(" (hard of hearing)") : "");
     }
     cJSON_Delete(j);
     lists_done();
