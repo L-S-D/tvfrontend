@@ -29,6 +29,10 @@
 #define RED_SETTLE_MS 1200 /* replay Red when the keyset has been quiet this long ... */
 #define RED_MAX_MS 6000    /* ... at most this long after the first keyset with Red */
 #define LAUNCH_EXIT_MS 5000
+/* the app ends or hides right after the replayed Red: it was already showing
+ * its interface (Anixe+: Red = destroyApplication) - start it again without */
+#define RED_UNDO_MS 3000
+#define NO_REPLAY_MAX 8
 
 static hbbweb_cfg cfg;
 static hbbweb_actions act;
@@ -54,6 +58,7 @@ static struct {
     int pending_red;
     int autostart;    /* started by itself (key mapping "HbbTV first"): without Red, quiet */
     uint32_t red_since, red_at;
+    uint32_t red_replayed_at; /* Red passed on to the starting app (undo window) */
     uint32_t back_times[3];
     int layer;        /* image is placed in the UI */
     int vrect[4];     /* last reported video window (skip repetitions) */
@@ -162,6 +167,7 @@ void hbbweb_close(const char *why) {
     S.visible = S.waiting = S.bg = S.autostart = 0;
     S.gen++;
     S.pending_red = 0;
+    S.red_replayed_at = 0;
     hbbmedia_stop_all();
     egress_set_channel(NULL);
     if (g_drm_used) {
@@ -368,6 +374,7 @@ static void try_start(void) {
      * by itself not at all (it shows its Red hint) */
     S.pending_red = !S.bg && !S.autostart;
     S.red_since = S.red_at = 0;
+    S.red_replayed_at = 0;
     S.layer = 0;
     snprintf(S.app_name, sizeof(S.app_name), "%s", jstr(app, "name") ? jstr(app, "name") : S.name);
     if (!quiet()) {
@@ -404,6 +411,8 @@ void hbbweb_prestart(void) {
 #define AIT_URL "local:ttx/hbbtv" /* AIT from the HTSP subscription (sidedata.c) */
 
 static void red_once(void);
+static void red_send(const char *why);
+static int no_replay(const char *url);
 
 /* show the preloaded app (Red): as on a TV, where it was already running in the background */
 static void reveal(void) {
@@ -417,11 +426,11 @@ static void reveal(void) {
     osd_message(msg, 2500, 0);
     on_frame();
     S.red_since = S.red_at = 0;
-    if (S.keyset_set && (S.keyset & 0x1)) {
+    if (S.keyset_set && (S.keyset & 0x1) && no_replay(S.url)) {
+        S.pending_red = 0; /* opens with its interface: showing it is enough */
+    } else if (S.keyset_set && (S.keyset & 0x1)) {
         /* the app is long done: Red immediately, without waiting for a quiet keyset */
-        S.pending_red = 0;
-        mt_log("[hbbweb] red to the preloaded app");
-        webr_key(403);
+        red_send("to the preloaded app");
     } else {
         S.pending_red = 1; /* with hbbtv-loaded/keyset (red_once) */
     }
@@ -565,22 +574,55 @@ int hbbweb_wheel(int dir) {
     return 1;
 }
 
-/* Keyset with navigation: the app already shows its controls - the opening
- * Red has started it and is used up. Replayed, it would close the app right
- * away again (Anixe: keyset 0x3F, Red = destroyApplication). In the
- * waiting state red-button apps request Red without navigation (0x1, 0x9, 0xB, 0xF) */
-static int red_consumed(void) {
-    if (!(S.keyset & 0x10)) return 0;
-    if (S.pending_red) mt_log("[hbbweb] red not replayed (controls open, keyset 0x%X)", S.keyset);
+/* Apps that ended on the replayed Red (they open with their interface): the
+ * next start gets no Red. The keyset tells nothing - the ARD Startleiste
+ * requests navigation (0x3F) while it waits hidden for Red, Anixe+ shows its
+ * interface with the same keyset and closes on Red */
+static char g_no_replay[NO_REPLAY_MAX][1024]; /* as S.url */
+static int g_no_replay_n;
+
+static int no_replay(const char *url) {
+    for (int i = 0; i < g_no_replay_n && i < NO_REPLAY_MAX; i++)
+        if (!strcmp(g_no_replay[i], url)) return 1;
+    return 0;
+}
+
+/* the app ends/hides within RED_UNDO_MS of the replayed Red: remember it and
+ * start it again without Red. 1 = done (the message is used up) */
+static int red_undo(const char *what) {
+    uint32_t now = SDL_GetTicks();
+    if (!S.red_replayed_at || now - S.red_replayed_at > RED_UNDO_MS || !S.url[0]) return 0;
+    S.red_replayed_at = 0;
+    if (!no_replay(S.url)) snprintf(g_no_replay[g_no_replay_n++ % NO_REPLAY_MAX], sizeof(g_no_replay[0]), "%s", S.url);
+    mt_log("[hbbweb] app %s right after the replayed red: started again without it", what);
+    char url[sizeof(S.url)];
+    snprintf(url, sizeof(url), "%s", S.url);
     S.pending_red = 0;
     S.red_at = 0;
+    load_app(url);
     return 1;
+}
+
+/* the opening Red to the app (replayed, or to a preloaded app) */
+static void red_send(const char *why) {
+    S.pending_red = 0;
+    S.red_at = 0;
+    S.red_replayed_at = SDL_GetTicks();
+    if (!S.red_replayed_at) S.red_replayed_at = 1;
+    mt_log("[hbbweb] red %s", why);
+    webr_key(403);
 }
 
 /* replay the opening Red once when the app is ready: its keyset
  * (with Red) has not changed for RED_SETTLE_MS, at most RED_MAX_MS */
 static void red_once(void) {
-    if (!S.pending_red || !(S.keyset & 0x1) || red_consumed()) return;
+    if (!S.pending_red || !(S.keyset & 0x1)) return;
+    if (no_replay(S.url)) {
+        mt_log("[hbbweb] red not replayed (the app opens with its interface)");
+        S.pending_red = 0;
+        S.red_at = 0;
+        return;
+    }
     uint32_t now = SDL_GetTicks();
     if (!S.red_since) S.red_since = now;
     uint32_t left = RED_MAX_MS - (now - S.red_since);
@@ -802,6 +844,7 @@ static void on_msg(const cJSON *m) {
                jstr(m, "url") ? jstr(m, "url") : "-", jstr(m, "state") ? jstr(m, "state") : "-",
                (int) jnum(m, "tag", -1), (int) jnum(m, "id", -1));
     } else if (!strcmp(type, "hbbtv-exit")) {
+        if (red_undo("exits")) return;
         if (!S.launch_at || now - S.launch_at > LAUNCH_EXIT_MS) hbbweb_close("app exits");
     } else if (!strcmp(type, "hbbtv-escape")) {
         hbbweb_close("3x Back in page");
@@ -822,6 +865,7 @@ static void on_msg(const cJSON *m) {
         S.hidden = 0;
     } else if (!strcmp(type, "hbbtv-hide")) {
         mt_log("[hbbweb] app hides itself");
+        if (red_undo("hides itself")) return;
         /* "to TV" (ORF: hide(), only Red left in the keyset) - close as in the
          * overlay, Red restarts it */
         if (S.shown_at && now - S.shown_at > 1000) hbbweb_close("app hides itself");
@@ -977,10 +1021,5 @@ void hbbweb_poll(void) {
         S.ait_tries++;
         fetch_get(AIT_URL, on_ait, (void *) (intptr_t) S.gen);
     }
-    if (S.visible && S.pending_red && S.red_at && SDL_GetTicks() >= S.red_at && !red_consumed()) {
-        S.pending_red = 0;
-        S.red_at = 0;
-        mt_log("[hbbweb] red replayed");
-        webr_key(403);
-    }
+    if (S.visible && S.pending_red && S.red_at && SDL_GetTicks() >= S.red_at) red_send("replayed");
 }

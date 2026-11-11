@@ -128,7 +128,12 @@ Two key layouts can be chosen in the settings ("Key layout"); the table shows
 
 **HbbTV first:** after 5 s on a channel its HbbTV app starts visibly, as on an
 HbbTV TV: without the opening red key (a red-button app shows its hint) and
-without error messages. Closed, it does not come back by itself on that channel;
+without error messages. When red starts the app instead, TVF passes that red on
+once the app's keyset has settled - red-button apps wait hidden for it (the ARD
+Startleiste requests navigation keys while hidden); an app that ends or hides
+within 3 s of that red was already showing its interface (Anixe+: red = exit) and
+is started again without it, and the next start leaves the red out. Closed, it
+does not come back by itself on that channel;
 red shows it again at once. The colour keys then work as described next for an
 open HbbTV app. Without a visible app green/yellow/blue open recordings, audio
 and teletext directly (short or long), red opens HbbTV, a long red press opens the
