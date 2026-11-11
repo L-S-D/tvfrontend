@@ -104,7 +104,7 @@ nothing is saved; a member that is left out keeps the stored value, `"host":""` 
 then TVF searches the network as at the first start and shows the result instead of taking it;
 `{host}` in the egress rules stays the stored server, where the proxies run),
 `stats` (ms, player statistics), player tuning knobs: `ctype`, `margin`,
-`vmax`/`amax`, `mpa` (`pcm` or a Starfish name such as `MPEG`), `alang`, `apid`,
+`vmax`/`amax`, `mpa` (Starfish codec name for MP2, default `MP3`, webOS 4 `pcm` = decoded by TVF), `alang`, `apid`,
 `maxfps`, `fps`, `keymode`, `dump`/`dumpmb` (raw data capture via TCP).
 Only for experiments on webOS 4: `alpha` (0 = window surface as SDL sets it up),
 `acbtype` (ACB player type, default 10 = MSE), `acbwin` (0 = full-screen window,

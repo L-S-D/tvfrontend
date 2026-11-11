@@ -2022,8 +2022,9 @@ int main(int argc, char *argv[]) {
             prefs_set("tvh.pass", cJSON_CreateString(jstr(params, "tvhPass")));
         }
     }
-    char host[128];
+    char host[128], saved_host[128];
     cfg_get("tvh.host", host, sizeof(host));
+    snprintf(saved_host, sizeof(saved_host), "%s", host);
     {
         const cJSON *t = cJSON_GetObjectItemCaseSensitive(params, "tvhTest");
         if (cJSON_IsObject(t)) {
@@ -2247,7 +2248,9 @@ int main(int argc, char *argv[]) {
          * relay - for the media server's videos */
         char egf[600];
         snprintf(egf, sizeof(egf), "%s/hbbtv/egress.json", res);
-        egress_load(egf, host);
+        /* {host} = the saved server, also with tvhTest: the proxies run next
+         * to the real tvh, not next to a test instance */
+        egress_load(egf, g_tvh_test && saved_host[0] ? saved_host : host);
         egress_set_mode(cJSON_IsString(eg) ? eg->valuestring : "rules");
         snprintf(egf, sizeof(egf), "%s/hbbtv/entry.json", res);
         hbbtv_load(egf);
