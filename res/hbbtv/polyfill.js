@@ -29,8 +29,12 @@
   // are shown by a <video> next to them (see below)
   try {
     var st = document.createElement('style');
+    // TVF's renderer with the compositor hole (compositorHole below): the
+    // broadcast object stays visible - an invisible element punches no hole,
+    // and WebKit draws nothing for it - so the app's own visibility applies
+    var bc = FWD && window.__HBBTV_FWD.hole ? ':not([type="video/broadcast" i])' : '';
     // HbbTV devices show no scrollbars
-    st.textContent = 'object[type^="video/"],object[type^="audio/"],object[type^="application/"]' +
+    st.textContent = 'object[type^="video/"]' + bc + ',object[type^="audio/"],object[type^="application/"]' +
                      '{visibility:hidden !important}::-webkit-scrollbar{display:none}';
     (document.head || document.documentElement).appendChild(st);
   } catch (e) { /* ignore */ }
@@ -362,9 +366,30 @@
     }
   }
 
+  // TVF's own renderer (__HBBTV_FWD.hole, WebKit patch tvf-video-hole) punches
+  // the hole in the compositor, as media.js does for <video>: everything
+  // composited below the object is cut away, whatever draws there - also the
+  // backgrounds of elements that are not its ancestors, which punchHole()
+  // cannot reach (Anixe's film list: picture hidden, sound on). punchHole()
+  // stays for bundles without it and does no harm with it.
+  var NATIVE_HOLE = FWD && !!window.__HBBTV_FWD.hole, holedBc = null;
+  function compositorHole(el) {
+    if (!NATIVE_HOLE) return;
+    if (holedBc && holedBc !== el) {
+      Element.prototype.removeAttribute.call(holedBc, 'tvf-hole');
+      holedBc.style.removeProperty('will-change');
+    }
+    holedBc = el;
+    // own compositing layer, even if the page has overwritten will-change
+    if (el.style.getPropertyValue('will-change') !== 'transform' || el.style.getPropertyPriority('will-change') !== 'important')
+      el.style.setProperty('will-change', 'transform', 'important');
+    if (!Element.prototype.hasAttribute.call(el, 'tvf-hole')) Element.prototype.setAttribute.call(el, 'tvf-hole', '');
+  }
+
   function videoRect(el) {
     try {
       var r = el.getBoundingClientRect();
+      compositorHole(el);
       punchHole(el, r);
       post({ type: 'hbbtv-video', x: r.left, y: r.top, w: r.width, h: r.height,
              vw: window.innerWidth, vh: window.innerHeight });
@@ -882,7 +907,12 @@
     proto.bindToCurrentChannel = function () {
       this.playState = 2;
       post({ type: 'hbbtv-broadcast', on: true, why: 'bindToCurrentChannel' });
-      videoRect(this);
+      // the rectangle as the next frame shows it: Anixe binds before it sizes
+      // the object again (full size at the small position, until the next poll)
+      var self = this, done = false;
+      var rect = function () { if (!done) { done = true; videoRect(self); } };
+      if (window.requestAnimationFrame) window.requestAnimationFrame(rect);
+      setTimeout(rect, 100);
       watch(this);
       return ch;
     };
