@@ -38,7 +38,10 @@ installation and usage are in the [README](../README.md).
   subtitles (the bit is on 150 German, 799 Danish, 775 empty). Labels as for DVB: language,
   "(hard of hearing)" for type 5, "(teletext)". Build option `TVF_PMT_FALLBACK` (CMake,
   default ON) – OFF leaves the lookup out
-* Audio: AC-3/E-AC-3/AAC directly, MP2 via minimp3 as PCM
+* Audio: AC-3/E-AC-3/AAC/MP2 directly to the TV's decoder (MP2 as Starfish codec `MP3`;
+  `MPEG` is refused). MP2 via minimp3 as PCM ran ~200 ms behind the picture on the G4 (the
+  TV's PCM channel, not compensated); it stays for webOS 4 (ACB, not tried natively there)
+  and with `"mpa":"pcm"`
 * First picture after switching ~0.4–0.5 s (free-to-air), ~0.65–0.85 s (HD+);
   recording start/seek ~0.45 s
 
@@ -98,7 +101,8 @@ parameters are remembered like the settings page,
 `dvrReadOnly` (1 = for tests: timers and resume positions are not written to tvh, only logged),
 `tvhTest` (for tests: `{"host":…,"user":…,"pass":…}` – tvh server and login of this run only,
 nothing is saved; a member that is left out keeps the stored value, `"host":""` = no server,
-then TVF searches the network as at the first start and shows the result instead of taking it),
+then TVF searches the network as at the first start and shows the result instead of taking it;
+`{host}` in the egress rules stays the stored server, where the proxies run),
 `stats` (ms, player statistics), player tuning knobs: `ctype`, `margin`,
 `vmax`/`amax`, `mpa` (`pcm` or a Starfish name such as `MPEG`), `alang`, `apid`,
 `maxfps`, `fps`, `keymode`, `dump`/`dumpmb` (raw data capture via TCP).

@@ -122,6 +122,7 @@ struct player {
     int paused;
 
     char mpa_name[16];   /* Starfish codec name for MPEG-1/2 audio, "pcm" = decode ourselves */
+    int mpa_given;       /* mpa from the start parameters (otherwise by platform) */
     int cfg_maxw, cfg_maxh; /* preset from the start parameters, 0 = by codec */
     int maxw, maxh;
     int maxfps;          /* adaptiveStreaming.maxFrameRate (affects the output cadence!) */
@@ -1708,7 +1709,12 @@ player *player_create(const char *p) {
     b->audio_enabled = jint(p, "audio", 1);
     b->force_apid = jint(p, "apid", 0);
     jstr(p, "alang", b->alang, sizeof(b->alang), "");
-    jstr(p, "mpa", b->mpa_name, sizeof(b->mpa_name), "pcm");
+    /* MPEG-1/2 audio (MP2): the TV's decoder ("MP3"; "MPEG" is refused on the
+     * G4/webOS 26) keeps it in sync like AC-3/AAC. "pcm" = minimp3 into the
+     * TV's PCM channel, which ran ~200 ms late there (not compensated); still
+     * the choice with ACB (webOS 4, not tried there), see player_use_acb */
+    b->mpa_given = jfind(p, "mpa") != NULL;
+    jstr(p, "mpa", b->mpa_name, sizeof(b->mpa_name), "MP3");
     b->cfg_maxw = jint(p, "maxw", 0);
     b->cfg_maxh = jint(p, "maxh", 0);
     b->stats_ms = jint(p, "stats", 0);
@@ -1734,7 +1740,14 @@ player *player_create(const char *p) {
     return b;
 }
 
-int player_use_acb(player *b) { return smp_api_acb_enable(b->app_id, &b->acb_opts); }
+int player_use_acb(player *b) {
+    int ok = smp_api_acb_enable(b->app_id, &b->acb_opts);
+    if (ok && !b->mpa_given && strcmp(b->mpa_name, "pcm")) {
+        snprintf(b->mpa_name, sizeof(b->mpa_name), "pcm");
+        mt_log("[player] webOS 4 (ACB): MP2 decoded by TVF (pcm)");
+    }
+    return ok;
+}
 
 void player_set_video_rect(player *b, int x, int y, int w, int h) {
     pthread_mutex_lock(&b->lock);
