@@ -52,6 +52,97 @@ static int g_ait_index = -1;
 static int g_ait_version = -1;
 static char *g_ait_sec[AIT_SECTIONS];
 
+/* HbbTV stream events (tvh fork: DSMCC streams): the versions of each event
+ * seen lately (a broadcaster repeats a section several times a second and may
+ * alternate two of them), and the events for the main thread */
+#define MAX_DSMCC 4
+#define SE_IDS 16
+#define SE_HIST 8
+#define SE_QUEUE 32
+typedef struct {
+    int id;              /* event_id, -1 = free */
+    int ver[SE_HIST];    /* section versions seen, -1 = none */
+    int next;
+} se_seen;
+typedef struct {
+    int index, tag;
+    se_seen seen[SE_IDS];
+} dsmccstream;
+static dsmccstream g_dsmcc[MAX_DSMCC];
+static int g_ndsmcc;
+static sidedata_stream_event g_seq[SE_QUEUE];
+static int g_seq_head, g_seq_n;
+
+static void se_clear(void) {
+    g_ndsmcc = 0;
+    g_seq_head = g_seq_n = 0;
+}
+
+/* 1 = this version of the event is new */
+static int se_new(dsmccstream *d, int id, int ver) {
+    se_seen *s = NULL;
+    for (int i = 0; i < SE_IDS && !s; i++)
+        if (d->seen[i].id == id) s = &d->seen[i];
+    if (!s) {
+        for (int i = 0; i < SE_IDS && !s; i++)
+            if (d->seen[i].id < 0) s = &d->seen[i];
+        if (!s) s = &d->seen[id % SE_IDS]; /* full: reuse a slot */
+        s->id = id;
+        for (int i = 0; i < SE_HIST; i++) s->ver[i] = -1;
+        s->next = 0;
+    }
+    for (int i = 0; i < SE_HIST; i++)
+        if (s->ver[i] == ver) return 0;
+    s->ver[s->next] = ver;
+    s->next = (s->next + 1) % SE_HIST;
+    return 1;
+}
+
+/* one DSM-CC stream descriptor section (table 0x3D, ISO/IEC 13818-6 9.2.7):
+ * its stream event descriptors (tag 0x1A) for the main thread */
+static void se_section(dsmccstream *d, const uint8_t *s, size_t len) {
+    if (len < 12 || s[0] != 0x3d) return;
+    size_t sl = 3 + (((s[1] & 0x0f) << 8) | s[2]);
+    if (sl > len || sl < 12) return;
+    int ver = (s[5] >> 1) & 0x1f;
+    size_t i = 8, end = sl - 4; /* without CRC32 / checksum */
+    while (i + 2 <= end) {
+        int tag = s[i], l = s[i + 1];
+        const uint8_t *e = s + i + 2;
+        if (i + 2 + (size_t) l > end) break;
+        if (tag == 0x1a && l >= 10) {
+            int id = (e[0] << 8) | e[1];
+            if (se_new(d, id, ver)) {
+                if (g_seq_n == SE_QUEUE) { /* main thread too slow: drop the oldest */
+                    g_seq_head = (g_seq_head + 1) % SE_QUEUE;
+                    g_seq_n--;
+                }
+                sidedata_stream_event *ev = &g_seq[(g_seq_head + g_seq_n++) % SE_QUEUE];
+                ev->component_tag = d->tag;
+                ev->event_id = id;
+                ev->npt = ((unsigned long long) (e[5] & 1) << 32) | ((unsigned long long) e[6] << 24) |
+                          ((unsigned long long) e[7] << 16) | ((unsigned long long) e[8] << 8) | e[9];
+                ev->len = l - 10 < (int) sizeof(ev->data) ? l - 10 : (int) sizeof(ev->data);
+                memcpy(ev->data, e + 10, (size_t) ev->len);
+            }
+        }
+        i += 2 + (size_t) l;
+    }
+}
+
+int sidedata_stream_event_next(sidedata_stream_event *ev) {
+    int r = 0;
+    pthread_mutex_lock(&g_lock);
+    if (g_seq_n > 0) {
+        *ev = g_seq[g_seq_head];
+        g_seq_head = (g_seq_head + 1) % SE_QUEUE;
+        g_seq_n--;
+        r = 1;
+    }
+    pthread_mutex_unlock(&g_lock);
+    return r;
+}
+
 static void ait_clear(void) {
     for (int i = 0; i < AIT_SECTIONS; i++) {
         free(g_ait_sec[i]);
@@ -184,6 +275,22 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
     }
     if (channel != g_channel || ait_index < 0) ait_clear(); /* same channel: tvh only sends new versions */
     g_ait_index = ait_index;
+    /* stream events: on the same channel (reconnect) the versions seen stay,
+     * nothing fires twice */
+    if (channel != g_channel) se_clear();
+    int ndsmcc = 0;
+    for (int i = 0; i < n && ndsmcc < MAX_DSMCC; i++) {
+        if (!s[i].dsmcc) continue;
+        dsmccstream *d = &g_dsmcc[ndsmcc];
+        if (ndsmcc >= g_ndsmcc || d->index != s[i].index) {
+            memset(d, 0, sizeof(*d));
+            for (int k = 0; k < SE_IDS; k++) d->seen[k].id = -1;
+        }
+        d->index = s[i].index;
+        d->tag = s[i].component_tag;
+        ndsmcc++;
+    }
+    g_ndsmcc = ndsmcc;
     if (channel != g_channel || ttx_index < 0) {
         ttxdec_free(g_ttx);
         g_ttx = NULL;
@@ -197,7 +304,7 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
     g_channel = channel;
     drop_dvb();
     for (int i = 0; i < n && g_ndvb < MAX_DVB; i++) {
-        if (s[i].teletext || s[i].ait || s[i].textsub) continue;
+        if (s[i].teletext || s[i].ait || s[i].textsub || s[i].dsmcc) continue;
         dvbstream *d = &g_dvb[g_ndvb];
         d->index = s[i].index;
         snprintf(d->lang, sizeof(d->lang), "%s", s[i].lang);
@@ -208,13 +315,19 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
         if (d->dec) g_ndvb++;
     }
     int pages = ttxdec_page_count(g_ttx), ndvb = g_ndvb, nttxsub = g_nttxsub, initial = g_ttx_initial;
+    char se[64] = "";
+    for (int i = 0; i < g_ndsmcc; i++) {
+        size_t o = strlen(se);
+        snprintf(se + o, sizeof(se) - o, "%s%d", i ? "," : "", g_dsmcc[i].tag);
+    }
     pthread_mutex_unlock(&g_lock);
     /* subtitle pages from the PMT only if tvh does not name their pages (tvh
      * without HTSP extension: TEXTSUB streams without page) */
     if (ttx_index >= 0 && ntextsub > nttxsub) pmtinfo_lookup(channel);
     mt_log("[side] channel %lu: teletext %s%s, initial page %03X, %d subtitle page(s) from tvh, %d DVB subtitle "
-           "stream(s)",
-           channel, ttx_index >= 0 ? "yes" : "no", pages ? " (pages kept)" : "", initial, nttxsub, ndvb);
+           "stream(s)%s%s",
+           channel, ttx_index >= 0 ? "yes" : "no", pages ? " (pages kept)" : "", initial, nttxsub, ndvb,
+           se[0] ? ", stream events tag " : "", se);
 }
 
 static void on_data(void *user, int index, const uint8_t *d, size_t len, long long pts) {
@@ -225,6 +338,12 @@ static void on_data(void *user, int index, const uint8_t *d, size_t len, long lo
     } else if (index == g_ait_index) {
         ait_section(d, len); /* followed by an htsmsg with the same apps: discarded */
     } else {
+        for (int i = 0; i < g_ndsmcc; i++)
+            if (g_dsmcc[i].index == index) {
+                se_section(&g_dsmcc[i], d, len);
+                pthread_mutex_unlock(&g_lock);
+                return;
+            }
         for (int i = 0; i < g_ndvb; i++)
             if (g_dvb[i].index == index) dvbsubdec_feed(g_dvb[i].dec, d, len, pts);
     }
@@ -253,6 +372,7 @@ void sidedata_reset(void) {
     drop_dvb();
     ait_clear();
     g_ait_index = -1;
+    se_clear();
     pthread_mutex_unlock(&g_lock);
 }
 

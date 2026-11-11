@@ -223,6 +223,17 @@ Which tags reach TVF:
 With HTSP the HbbTV AIT comes from the subscription too: tvh sends the AIT PID as a
 stream of type `HBBTV` whose packets are the raw AIT sections (without CRC);
 `sidedata.c` parses them (`local:ttx/hbbtv`).
+
+HbbTV stream events (DSM-CC stream descriptors, ETSI TS 102 809): the tvheadend
+fork (`L-S-D/tvheadend`, branch `pr/htsp-stream-events`, in `v3/*`) sends a PID of
+stream type 0x0C as a stream of type `DSMCC` whose packets are the raw stream
+descriptor sections (table 0x3D). `sidedata.c` passes each new version of a stream
+event once to the page (`__tvfSE`, `hbbweb.c`), the OIPF replacement to the
+listeners of `addStreamEventListener` - the event names come from the stream event
+description file (XML, fetched over HTTP); StreamEvent objects in the object
+carousel (`dvb:` URLs) answer with status "error". ARD's HbbTV player takes its
+subtitles this way (`sevent.xml`, event `subtit`), ORF sends subtitles as stream
+events too. With a plain tvheadend no events arrive, as before.
 If TVF cannot reach the server, the message says to hold green (or red, with "HbbTV
 first") for the settings.
 
@@ -310,6 +321,7 @@ in a trusted network only.
     socat -u TCP-LISTEN:5558 OPEN:shot.png,creat &             # receiver
     echo "SHOT <pc>:5558" | socat - UDP:<tv>:5556   # UI as PNG (without video)
     echo "WHEEL 1" | socat - UDP:<tv>:5556                  # wheel
+    echo "WEBJS document.title" | socat - UDP:<tv>:5556     # evaluate an expression in the HbbTV page; result as "WEBJS ..." log lines
     echo "AOFF clear 208" | socat - UDP:<tv>:5556           # sound offset of a channel: ms, or clear (also the last one set)
     echo "VDROP 20" | socat - UDP:<tv>:5556                 # test: discard 20 s of video (picture watchdog)
     echo "CUT 2" | socat - UDP:<tv>:5556                    # test: cut the recording's connection, fail 2 reconnects (5 = give up)

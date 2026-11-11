@@ -10,6 +10,7 @@
 #include "log.h"
 #include "osd.h"
 #include "relay.h"
+#include "sidedata.h"
 #include "ui_sdl.h"
 #include "webr.h"
 
@@ -795,6 +796,11 @@ static void on_msg(const cJSON *m) {
         mt_log("[hbbweb] page %s component kind %d index %d%s%s", on ? "selects" : "unselects", kind, index,
                jstr(m, "sub") ? " sub " : "", jstr(m, "sub") ? jstr(m, "sub") : "");
         if (act.component) act.component(kind, index, jstr(m, "sub"), on);
+    } else if (!strcmp(type, "hbbtv-streamevent")) {
+        /* the page registers for a stream event (polyfill.js) - for the log */
+        mt_log("[hbbweb] stream event '%s' of %s: %s (tag %d, event %d)", jstr(m, "name") ? jstr(m, "name") : "",
+               jstr(m, "url") ? jstr(m, "url") : "-", jstr(m, "state") ? jstr(m, "state") : "-",
+               (int) jnum(m, "tag", -1), (int) jnum(m, "id", -1));
     } else if (!strcmp(type, "hbbtv-exit")) {
         if (!S.launch_at || now - S.launch_at > LAUNCH_EXIT_MS) hbbweb_close("app exits");
     } else if (!strcmp(type, "hbbtv-escape")) {
@@ -948,8 +954,24 @@ void hbbweb_set_media(const char *sock) {
     if (webr_running() && !S.visible) webr_stop();
 }
 
+/* HbbTV stream events of the channel (sidedata.c) to the page's listeners
+ * (polyfill.js __tvfSE): also to an app preloaded in the background, it
+ * follows the programme as a visible one does */
+static void stream_events(void) {
+    sidedata_stream_event ev;
+    while (sidedata_stream_event_next(&ev)) {
+        if (!S.visible) continue;
+        char js[64 + 2 * sizeof(ev.data)];
+        int o = snprintf(js, sizeof(js), "window.__tvfSE&&__tvfSE(%d,%d,%llu,'", ev.component_tag, ev.event_id, ev.npt);
+        for (int i = 0; i < ev.len && o + 3 < (int) sizeof(js); i++) o += snprintf(js + o, sizeof(js) - (size_t) o, "%02x", ev.data[i]);
+        snprintf(js + o, sizeof(js) - (size_t) o, "')");
+        webr_eval(js);
+    }
+}
+
 void hbbweb_poll(void) {
     webr_poll();
+    stream_events();
     if (S.waiting && S.ait_retry_at && (int32_t) (SDL_GetTicks() - S.ait_retry_at) >= 0) {
         S.ait_retry_at = 0;
         S.ait_tries++;

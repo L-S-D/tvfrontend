@@ -709,6 +709,82 @@
     }
   }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['type', 'data'] });
 
+  // ---- DSM-CC stream events (see addStreamEventListener) ----
+  var seRegs = [], seDescs = {};
+  function seLog(reg, state) {
+    post({ type: 'hbbtv-streamevent', url: reg.url, name: reg.name, state: state,
+           tag: reg.tag === null ? -1 : reg.tag, id: reg.id === null ? -1 : reg.id });
+  }
+  function seFire(reg, status, hex, text) {
+    var ev = { type: 'StreamEvent', name: reg.name, data: hex || '', text: text || '', status: status };
+    try { reg.listener.call(reg.obj, ev); } catch (e) { /* the app's own error */ }
+  }
+  function seFail(reg, why) {
+    seLog(reg, why);
+    setTimeout(function () {
+      var i = seRegs.indexOf(reg);
+      if (i < 0) return;
+      seRegs.splice(i, 1); /* an error ends the registration */
+      seFire(reg, 'error');
+    }, 0);
+  }
+  // stream event description (TS 102 809 8.2): <dsmcc_object component_tag=..>
+  // <stream_event stream_event_id=.. stream_event_name=../>, any namespace
+  function seParse(doc) {
+    var map = {}, all = doc ? doc.getElementsByTagName('*') : [];
+    for (var i = 0; i < all.length; i++) {
+      var o = all[i];
+      if (o.localName !== 'dsmcc_object') continue;
+      var tag = parseInt(o.getAttribute('component_tag'), 10), evs = o.getElementsByTagName('*');
+      for (var k = 0; k < evs.length; k++) {
+        if (evs[k].localName !== 'stream_event') continue;
+        var name = evs[k].getAttribute('stream_event_name'), id = parseInt(evs[k].getAttribute('stream_event_id'), 10);
+        if (name !== null && !isNaN(id)) map[name] = { tag: isNaN(tag) ? null : tag, id: id };
+      }
+    }
+    return map;
+  }
+  function seLoad(url, done) {
+    var d = seDescs[url];
+    if (d && d.map) return done(d.map);
+    if (d) return d.wait.push(done);
+    d = seDescs[url] = { map: null, wait: [done] };
+    function finish(map) {
+      if (map) d.map = map; else delete seDescs[url]; /* a later registration tries again */
+      var w = d.wait;
+      d.wait = [];
+      for (var i = 0; i < w.length; i++) w[i](map);
+    }
+    var x = new XMLHttpRequest();
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) return;
+      var map = null;
+      try {
+        if (x.status >= 200 && x.status < 300 || x.status === 0 && x.responseText)
+          map = seParse(x.responseXML || new DOMParser().parseFromString(x.responseText, 'text/xml'));
+      } catch (e) { map = null; }
+      finish(map);
+    };
+    try { x.open('GET', url, true); x.send(); } catch (e) { x.onreadystatechange = null; finish(null); }
+  }
+  // TVF: a new stream event of the channel (component tag -1 = unknown, data hex)
+  window.__tvfSE = function (tag, id, npt, hex) {
+    var text = '';
+    try {
+      var b = new Uint8Array(hex.length / 2);
+      for (var i = 0; i < b.length; i++) b[i] = parseInt(hex.substr(2 * i, 2), 16);
+      text = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8').decode(b)
+                                                 : decodeURIComponent(hex.replace(/(..)/g, '%$1'));
+    } catch (e) { text = ''; }
+    var regs = seRegs.slice();
+    for (var k = 0; k < regs.length; k++) {
+      var r = regs[k];
+      if (!r.bound || r.id !== id || (r.tag !== null && tag >= 0 && r.tag !== tag)) continue;
+      if (!r.fired++) seLog(r, 'first event');
+      seFire(r, 'trigger', hex, text);
+    }
+  };
+
   var proto = window.HTMLObjectElement && window.HTMLObjectElement.prototype;
   if (proto) {
     // data/attributes of the A/V objects (even if type is still missing: the order
@@ -844,9 +920,41 @@
       return true;
     };
     proto.getChannelConfig = function () { return { channelList: [ch], currentChannel: ch }; };
-    // DSM-CC stream events (RTL): no source, no events
-    proto.addStreamEventListener = function () {};
-    proto.removeStreamEventListener = function () {};
+    // DSM-CC stream events (ETSI TS 102 796 8.2.1.2, OIPF DAE 7.13.21): the
+    // tvheadend fork passes the stream descriptor sections of the channel, TVF
+    // calls __tvfSE (below) for each new event. targetURL names a stream event
+    // description file (XML) that maps the event names to component tag and
+    // event id. StreamEvent objects in the object carousel (dvb: URLs) are not
+    // available: status "error", as for an unknown name.
+    proto.addStreamEventListener = function (url, name, listener) {
+      if (typeof listener !== 'function') return;
+      var reg = { obj: this, url: String(url), name: String(name), listener: listener, tag: null, id: null,
+                  bound: false, fired: 0 };
+      for (var i = 0; i < seRegs.length; i++) {
+        var r = seRegs[i];
+        if (r.obj === reg.obj && r.url === reg.url && r.name === reg.name && r.listener === listener) return;
+      }
+      seRegs.push(reg);
+      if (/^dvb:/i.test(reg.url)) return seFail(reg, 'object carousel - not available');
+      var abs = reg.url;
+      try { abs = new URL(reg.url, location.href).href; } catch (e) { /* as it is */ }
+      seLoad(abs, function (map) {
+        if (seRegs.indexOf(reg) < 0) return;
+        var ev = map && map[reg.name];
+        if (!ev) return seFail(reg, map ? 'no such event' : 'description not loaded');
+        reg.tag = ev.tag;
+        reg.id = ev.id;
+        reg.bound = true;
+        seLog(reg, 'registered');
+      });
+    };
+    proto.removeStreamEventListener = function (url, name, listener) {
+      for (var i = seRegs.length - 1; i >= 0; i--) {
+        var r = seRegs[i];
+        if (r.obj === this && r.url === String(url) && r.name === String(name) && r.listener === listener)
+          seRegs.splice(i, 1);
+      }
+    };
     // application/oipfCapabilities
     proto.hasCapability = function (c) { return /HBBTV|DL|DASH/i.test(String(c)); };
     try {

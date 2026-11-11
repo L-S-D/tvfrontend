@@ -930,9 +930,10 @@ static void htsp_start_msg(player *b, unsigned long chid, const unsigned char *b
                    e->audio_type == 3 ? " (AD)" : e->audio_type == 2 ? " (hearing impaired)" : "",
                    e->receiver_mix ? " (receiver mix)" : "",
                    e->codec == ES_TELETEXT && e->ttx_initial ? " (initial page)" : "", e->component_tag);
-        int ait = !strcmp(cjs(st, "type"), "HBBTV");
+        int ait = !strcmp(cjs(st, "type"), "HBBTV"), dsmcc = !strcmp(cjs(st, "type"), "DSMCC");
         /* TEXTSUB only as information (page, type), the others with packets (index < 64) */
-        if ((e->codec == ES_TEXTSUB || ((e->codec == ES_TELETEXT || e->codec == ES_DVBSUB || ait) && e->pid < 64)) &&
+        if ((e->codec == ES_TEXTSUB ||
+             ((e->codec == ES_TELETEXT || e->codec == ES_DVBSUB || ait || dsmcc) && e->pid < 64)) &&
             e->pid >= 0 && nside < TS_MAX_ES) {
             player_side_stream *s = &side[nside++];
             memset(s, 0, sizeof(*s));
@@ -940,6 +941,8 @@ static void htsp_start_msg(player *b, unsigned long chid, const unsigned char *b
             s->teletext = e->codec == ES_TELETEXT;
             s->textsub = e->codec == ES_TEXTSUB;
             s->ait = ait;
+            s->dsmcc = dsmcc;
+            s->component_tag = e->component_tag;
             snprintf(s->lang, sizeof(s->lang), "%s", e->lang);
             s->composition = (int) cjn(st, "composition_id", 0);
             s->ancillary = (int) cjn(st, "ancillary_id", 0);

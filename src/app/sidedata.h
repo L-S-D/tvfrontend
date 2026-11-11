@@ -22,6 +22,18 @@ void sidedata_init(player *p);
 /* channel change (main thread): discard everything, the next subscription rebuilds */
 void sidedata_reset(void);
 
+/* HbbTV stream events (tvh fork: DSMCC streams with the DSM-CC stream
+ * descriptor sections, ETSI TS 102 809): every new version of a stream event
+ * once, oldest first (main thread). 1 = ev filled, 0 = none */
+typedef struct {
+    int component_tag;       /* of its stream, -1 = unknown */
+    int event_id;
+    unsigned long long npt;  /* 0 = "do it now" */
+    int len;                 /* private data */
+    unsigned char data[256];
+} sidedata_stream_event;
+int sidedata_stream_event_next(sidedata_stream_event *ev);
+
 /* current subscription has teletext */
 int sidedata_has_teletext(void);
 

@@ -180,6 +180,9 @@ typedef struct {
     int index;    /* stream index from tvh */
     int teletext; /* 1 teletext, 0 DVB subtitles */
     int ait;      /* 1 HbbTV AIT (tvh: type HBBTV, packets = AIT sections) */
+    int dsmcc;    /* 1 HbbTV stream events (tvh fork: type DSMCC, packets = DSM-CC
+                   * stream descriptor sections) */
+    int component_tag; /* -1 = unknown (tvh without the component tags) */
     int textsub;  /* 1 teletext subtitle page (tvh: TEXTSUB, no packets needed) */
     char lang[4];
     int composition, ancillary; /* DVB subtitles: pages */
