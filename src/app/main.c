@@ -114,6 +114,7 @@ typedef struct {
     int side_local; /* HTSP subscription: teletext, subtitles, AIT from sidedata.c (IPTV: none of these) */
     uint32_t hbb_pre_at; /* preload the channel's HbbTV app from then on (dwelling), 0 = done */
     int hbb_auto_done;   /* "HbbTV first": channel's app already started automatically */
+    int hbb_ait_late;    /* that start found no AIT yet: once more when it comes */
     /* Magic Remote: pointer visible (webOS reports show/hide as a
      * scancode). Then the click at the pointer position counts; an OK key that
      * belongs to the same press (within CLICK_DEDUP_MS) is dropped. */
@@ -480,6 +481,10 @@ static void open_audio_menu(void) {
 
 /* ---------------- Hint while the live stream is not running ---------------- */
 
+static int rx_build(const tvhstat_info *i, osd_rx *out);
+static void noacc_detail(const tvhstat_info *i, char *out, size_t n);
+#define NOACC_HINT_MS 2000 /* "No access" this long without a picture: hint that decryption fails */
+
 /* remove our own hint; another message that replaced it stays */
 static void retry_clear(void) {
     if (!app.retry_text[0]) return;
@@ -494,7 +499,29 @@ static void retry_clear(void) {
 static void retry_status(const player_status *rs, uint32_t nowt) {
     const char *name = app.chname[0] ? app.chname : _("Channel");
     char msg[sizeof(app.retry_text)] = "";
-    if (app.retry_at) {
+    /* scrambled and the key does not come (tvheadend fork): say so, with the CA
+     * systems and the reception - "not responding" would point the wrong way.
+     * Briefly every scrambled channel reports it until its first key. */
+    static uint32_t noacc_at, noacc_ch;
+    tvhstat_info na;
+    uint32_t ch = tvsrc_status_channel(app.channel);
+    int noacc = !rs->first_frame && tvhstat_no_access(ch, &na);
+    if (!noacc || noacc_ch != ch) noacc_at = 0;
+    if (noacc && !noacc_at) noacc_at = nowt ? nowt : 1, noacc_ch = ch;
+    noacc = noacc && nowt - noacc_at >= NOACC_HINT_MS;
+    if (noacc) {
+        char d[sizeof(msg) / 2];
+        noacc_detail(&na, d, sizeof(d));
+        int left = app.retry_at ? ((int32_t) (app.retry_at - nowt) + 999) / 1000 : 0;
+        if (app.retry_at && left < 1) left = 1;
+        if (app.retry_at)
+            snprintf(msg, sizeof(msg), _("%s: decryption failed \xE2\x80\x93 retrying in %d s"), name, left);
+        else if (app.retries > 0)
+            snprintf(msg, sizeof(msg), _("%s: decryption failed \xE2\x80\x93 retrying \xE2\x80\xA6"), name);
+        else
+            snprintf(msg, sizeof(msg), _("%s: decryption failed"), name);
+        if (d[0]) snprintf(msg + strlen(msg), sizeof(msg) - strlen(msg), "\n%s", d);
+    } else if (app.retry_at) {
         int left = ((int32_t) (app.retry_at - nowt) + 999) / 1000;
         if (left < 1) left = 1;
         /* whole sentences per case: word order differs per language */
@@ -573,7 +600,11 @@ static int rx_build(const tvhstat_info *i, osd_rx *out) {
     }
     if (i->has_unc && i->unc) snprintf(r.errs, sizeof(r.errs), "UNC %u", i->unc);
     else if (i->has_ber && i->ber) snprintf(r.errs, sizeof(r.errs), "BER %u", i->ber);
-    if (i->has_descr) {
+    if (i->no_access) {
+        /* no key (tvheadend fork): the CA systems the channel offers */
+        r.ca_failed = 1;
+        snprintf(r.ca_via, sizeof(r.ca_via), "%.39s", i->ca_list);
+    } else if (i->has_descr) {
         if (!i->caid && !i->ecmtime) {
             r.ca_failed = 1;
         } else {
@@ -590,6 +621,25 @@ static int rx_build(const tvhstat_info *i, osd_rx *out) {
     snprintf(r.error, sizeof(r.error), "%.40s", i->error);
     *out = r;
     return 1;
+}
+
+/* the second line of the "decryption failed" hint: CA systems and reception */
+static void noacc_detail(const tvhstat_info *i, char *out, size_t n) {
+    osd_rx r;
+    size_t o = 0;
+    out[0] = 0;
+    if (i->ca_list[0]) o += (size_t) snprintf(out + o, n - o, "%s", i->ca_list);
+    if (!rx_build(i, &r)) return;
+    if (r.signal[0] && o < n)
+        o += (size_t) snprintf(out + o, n - o, "%s%s %s", o ? " \xC2\xB7 " : "", _("Signal"), r.signal);
+    if (r.snr[0] && o < n) o += (size_t) snprintf(out + o, n - o, "%sSNR %s", o ? " \xC2\xB7 " : "", r.snr);
+    if (i->status[0] && o < n) {
+        const char *q = !strcmp(i->status, "GOOD")    ? _("Good")
+                        : !strcmp(i->status, "FAINT") ? _("Weak")
+                        : !strcmp(i->status, "BAD")   ? _("Bad")
+                                                      : _("No signal");
+        snprintf(out + o, n - o, "%s%s", o ? " \xC2\xB7 " : "", q);
+    }
 }
 
 static tvhstat_info rx_last; /* the last reception state (also for the info window) */
@@ -629,7 +679,9 @@ static void reception_tick(void) {
     if (!app.background && !recplay_active() && app.url[0] && !app.hbbtv_live_off) {
         player_status st;
         player_status_get(app.pl, &st);
-        if (st.first_frame) want = tvsrc_status_channel(app.channel);
+        uint32_t ch = tvsrc_status_channel(app.channel);
+        /* reception also while a scrambled channel waits for its key */
+        if (st.first_frame || tvhstat_no_access(ch, NULL)) want = ch;
     }
     tvhstat_watch(want);
     tvhstat_info ti;
@@ -661,7 +713,7 @@ static void on_play(const tvsrc_play_info *p) {
         return;
     }
     if (ch != app.channel) hbbweb_close("channel change"); /* also a preloaded app */
-    if (ch != app.channel) app.hbb_auto_done = 0;
+    if (ch != app.channel) app.hbb_auto_done = app.hbb_ait_late = 0;
     if (ch != app.channel || !app.hbb_pre_at) app.hbb_pre_at = SDL_GetTicks() + HBB_PRELOAD_MS;
     if (ch != app.channel) info_close(); /* was showing the old channel */
     app.channel = ch;
@@ -2409,12 +2461,22 @@ int main(int argc, char *argv[]) {
         if (app.hbb_pre_at && (int32_t) (SDL_GetTicks() - app.hbb_pre_at) >= 0 && !app.background) {
             app.hbb_pre_at = 0;
             if (app.side_local && !recplay_active() && !app.background && !hbbweb_active()) {
+                /* a scrambled channel without a key (tvh fork, earlyStart) can
+                 * send its AIT only later */
+                app.hbb_ait_late = sidedata_ait_version() < 0;
                 if (g_keys_hbbtv && !app.hbb_auto_done) {
                     app.hbb_auto_done = 1;
                     hbbweb_autostart(app.channel, app.chname, hbbtv_rewrites());
                 } else {
                     hbbweb_preload(app.channel, app.chname, hbbtv_rewrites());
                 }
+            }
+        }
+        if (app.hbb_ait_late && !app.hbb_pre_at && sidedata_ait_version() >= 0) {
+            app.hbb_ait_late = 0;
+            if (!hbbweb_active()) {
+                app.hbb_auto_done = 0; /* that start found nothing */
+                app.hbb_pre_at = SDL_GetTicks();
             }
         }
         /* start the renderer in advance (not in the startup rush) */

@@ -383,6 +383,13 @@ int sidedata_has_teletext(void) {
     return r;
 }
 
+int sidedata_ait_version(void) {
+    pthread_mutex_lock(&g_lock);
+    int r = g_ait_version;
+    pthread_mutex_unlock(&g_lock);
+    return r;
+}
+
 /* ---------------- Queries ("local:ttx/...") ---------------- */
 
 /* value of a query parameter (without decoding - numbers only) */

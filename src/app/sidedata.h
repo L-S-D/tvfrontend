@@ -37,6 +37,9 @@ int sidedata_stream_event_next(sidedata_stream_event *ev);
 /* current subscription has teletext */
 int sidedata_has_teletext(void);
 
+/* version of the AIT the subscription has delivered, -1 = none yet */
+int sidedata_ait_version(void);
+
 /* teletext start page according to the PMT (hex, e.g. 0x100; tvh with
  * HTSP extension), 0 = unknown */
 int sidedata_ttx_initial_page(void);

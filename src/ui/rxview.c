@@ -68,6 +68,8 @@ rxview *rxview_create(lv_obj_t *parent, int x, int y, int detail) {
     lv_obj_set_style_border_width(v->ca, 1, 0);
     v->ca_l = ui_label(v->ca, 18, 1, UI_TEXT);
     lv_obj_set_style_text_letter_space(v->ca_l, 1, 0);
+    lv_obj_set_style_max_width(v->ca_l, RX_W - 18, 0); /* inside the column (padding, border) */
+    ui_label_dots(v->ca_l);
     v->via = ui_label(v->box, 18, 0, UI_DIM);
     lv_obj_set_pos(v->via, 0, 144 + q);
     lv_obj_set_width(v->via, RX_W);
@@ -112,7 +114,7 @@ void rxview_set(rxview *v, const osd_rx *r, const char *ids) {
         show(v->quality, r && r->quality[0]);
     }
     char t[96] = "";
-    if (r && r->ca_failed) snprintf(t, sizeof(t), "%s", _("DESCRAMBLING FAILED"));
+    if (r && r->ca_failed) snprintf(t, sizeof(t), "%s", _("NO KEY"));
     else if (r && r->ca[0]) {
         snprintf(t, sizeof(t), "%s", r->ca);
         for (char *p = t; *p; p++)
@@ -125,6 +127,8 @@ void rxview_set(rxview *v, const osd_rx *r, const char *ids) {
     char w[160] = "";
     if (r && r->ca[0] && !r->ca_failed)
         snprintf(w, sizeof(w), "%s%s%s", r->ca_time, r->ca_time[0] && r->ca_via[0] ? " \xC2\xB7 " : "", r->ca_via);
+    else if (r && r->ca_failed && r->ca_via[0])
+        snprintf(w, sizeof(w), "%s", r->ca_via); /* the CA systems the channel offers */
     if (r && r->error[0]) snprintf(w + strlen(w), sizeof(w) - strlen(w), "%stvh: %s", w[0] ? "\n" : "", r->error);
     /* BER/UNC: in the detail view in the quality line */
     if (r && r->errs[0] && !r->error[0] && !v->detail)

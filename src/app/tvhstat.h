@@ -29,6 +29,10 @@ typedef struct {
     uint32_t caid, provid, ecmtime, hops;
     char cardsystem[32], reader[64], from[64], protocol[32];
     char error[96]; /* subscriptionStop/-Status, "" = none */
+    /* tvheadend fork (earlyStart/reportNoAccess): the channel is scrambled and
+     * its key does not come, and the CA systems of its CA streams */
+    int no_access;
+    char ca_list[96]; /* "Viaccess 0500, 4AFC", "" = unknown */
 } tvhstat_info;
 
 /* status message of the live subscription on channel channel (player thread) */
@@ -40,3 +44,7 @@ void tvhstat_watch(uint32_t channel_id);
 /* fetch the current state (only for the watched channel, otherwise channel_id 0):
  * 1 = changed since the last call */
 int tvhstat_get(tvhstat_info *out);
+
+/* the subscription of channel channel_id reports "No access" (also before its
+ * first picture, without watching it); out = its state. 1 = yes */
+int tvhstat_no_access(uint32_t channel_id, tvhstat_info *out);

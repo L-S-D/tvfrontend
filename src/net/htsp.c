@@ -516,6 +516,11 @@ htsp_sub *htsp_sub_open(uint32_t channel, int timeshift_s, const char *profile, 
      * overflows that every time) */
     if (g_queue_depth > 0) hmsg_s64(&m, "queueDepth", g_queue_depth);
     if (profile && profile[0]) hmsg_str(&m, "profile", profile);
+    /* tvheadend fork (L-S-D, pr/htsp-scrambled; others ignore it): a scrambled
+     * channel without a key starts anyway (AIT, teletext) and reports
+     * "No access" - instead of no start and no status at all */
+    hmsg_s64(&m, "earlyStart", 1);
+    hmsg_s64(&m, "reportNoAccess", 1);
     hmsg_s64(&m, "seq", seq);
     int r = send_msg(fd, &m);
     if (r != 0) shutdown(fd, SHUT_RDWR); /* the reader thread notices the disconnect */

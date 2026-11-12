@@ -255,6 +255,20 @@ description file (XML, fetched over HTTP); StreamEvent objects in the object
 carousel (`dvb:` URLs) answer with status "error". ARD's HbbTV player takes its
 subtitles this way (`sevent.xml`, event `subtit`), ORF sends subtitles as stream
 events too. With a plain tvheadend no events arrive, as before.
+
+Scrambled channel without a key: tvheadend holds the start until audio/video can be
+decoded, so a client sees nothing - no start, no status, no AIT. TVF asks the fork
+(`L-S-D/tvheadend`, branch `pr/htsp-scrambled`, in `v3/*`) with the subscribe options
+`earlyStart` and `reportNoAccess` (a plain tvheadend ignores them): the start comes after
+a second anyway (AIT and teletext run, the HbbTV app starts), its CA streams carry their
+CA system (`caid`, `caname`), and the status "No access" comes with subscriptionError
+`scrambled` (`tvhstat.c`). After 2 s of it without a picture TVF says "decryption
+failed" instead of "not responding", with the CA systems and the reception in a second
+line; the banner's decryption box turns red ("NO KEY") with the CA systems below it. The
+picture watchdog retries after 10 s as for any channel without a picture. When tvheadend
+gives up on the descrambler it restarts the service every few seconds: each new start of
+the same channel keeps the reception values, and if the HbbTV start (after 5 s on the
+channel) found no AIT yet, it runs once more as soon as the AIT arrives.
 If TVF cannot reach the server, the message says to hold green (or red, with "HbbTV
 first") for the settings.
 
