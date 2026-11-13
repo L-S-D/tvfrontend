@@ -114,6 +114,7 @@ static void call(const char *method, const char *payload, int kind) {
 
 static void call_id(const char *method) {
     if (!S.media_id[0]) return;
+    mt_log("[media] %s", method);
     char p[192];
     snprintf(p, sizeof(p), "{\"mediaId\":\"%s\"}", S.media_id);
     call(method, p, 2);
@@ -401,6 +402,7 @@ static void on_event(const cJSON *j) {
         smp_acb_playing(S.acb, true);
         act.update(S.id, "playing", -1, S.dur, 0);
     } else if ((e = cJSON_GetObjectItemCaseSensitive(j, "paused"))) {
+        mt_log("[media] paused");
         S.playing = 0;
         smp_acb_loaded(S.acb);
         smp_acb_playing(S.acb, false);

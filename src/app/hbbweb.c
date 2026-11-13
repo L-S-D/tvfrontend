@@ -687,12 +687,16 @@ static void on_media(const cJSON *m) {
         if (u) hbbmedia_play(id, u, jstr(m, "mime"), jnum(m, "time", 0));
         video_from(cJSON_GetObjectItemCaseSensitive(m, "rect"));
     } else if (!strcmp(op, "resume")) {
+        mt_log("[hbbweb] media: element %d resume", id);
         hbbmedia_resume(id);
     } else if (!strcmp(op, "pause")) {
+        mt_log("[hbbweb] media: element %d pause", id);
         hbbmedia_pause(id);
     } else if (!strcmp(op, "seek")) {
+        mt_log("[hbbweb] media: element %d seek %.3f s", id, jnum(m, "time", 0));
         hbbmedia_seek(id, jnum(m, "time", 0));
     } else if (!strcmp(op, "stop")) {
+        mt_log("[hbbweb] media: element %d stop", id);
         hbbmedia_stop(id);
     } else if (!strcmp(op, "rect")) {
         if (hbbmedia_active()) video_from(cJSON_GetObjectItemCaseSensitive(m, "rect"));
