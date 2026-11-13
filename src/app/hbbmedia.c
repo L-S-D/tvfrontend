@@ -49,6 +49,7 @@ static struct {
     long acb;           /* webOS 4 (no exported window): ACB of the pipeline, 0 = none */
     luna_sub *sub;
     int loaded, playing, paused_req, ended;
+    int self_resumes;   /* "paused" from the media server without a pause request, answered with play */
     double start;       /* seek there after loadCompleted */
     double time, dur;
     uint32_t live_at;   /* live picture back at (SDL ticks), 0 = not scheduled */
@@ -166,6 +167,7 @@ void hbbmedia_play(int id, const char *url, const char *mime, double start) {
     S.time = S.start;
     S.dur = -1;
     S.paused_req = 0;
+    S.self_resumes = 0;
     S.live_at = 0;
     if (!S.live_off) {
         S.live_off = 1;
@@ -403,6 +405,16 @@ static void on_event(const cJSON *j) {
         act.update(S.id, "playing", -1, S.dur, 0);
     } else if ((e = cJSON_GetObjectItemCaseSensitive(j, "paused"))) {
         mt_log("[media] paused");
+        if (!S.paused_req && S.self_resumes < 3) {
+            /* nobody asked for it, the page wants playback: seen with ORF's short
+             * DASH bumper on webOS 4 ("paused" 0.1 ms after "playing", neither
+             * the page nor TVF had called pause). Without play the clip never
+             * ends, and the page waits for its end before it plays the content. */
+            S.self_resumes++;
+            mt_log("[media] paused without a pause request - play again (%d)", S.self_resumes);
+            call_id("play");
+            return;
+        }
         S.playing = 0;
         smp_acb_loaded(S.acb);
         smp_acb_playing(S.acb, false);
