@@ -110,6 +110,13 @@ void acb_state(long id, AcbAPI_PlayState st) {
     long task = 0;
     if (id && !acb.set_state(id, APPSTATE_FOREGROUND, st, &task)) mt_log("[acb] %ld: state %d rejected", id, st);
 }
+
+/* the pipeline of smp_acb_attach (only one: the HbbTV catch-up player) */
+std::mutex foreign_mu;
+long foreign_id;
+int foreign_vw, foreign_vh;
+bool foreign_loaded;      /* LOADED reported (smp_acb_loaded) */
+int foreign_pending = -1; /* AcbAPI_PlayState requested before that, -1 = none */
 } // namespace
 
 struct smp_api {
@@ -171,9 +178,100 @@ void smp_api_set_rect(smp_api *a, int x, int y, int w, int h) {
     acb_rect.y = y;
     acb_rect.w = w;
     acb_rect.h = h;
+    {
+        /* the page's video element moves the catch-up picture too */
+        std::lock_guard<std::mutex> g(foreign_mu);
+        if (foreign_id) acb_window(foreign_id, foreign_vw, foreign_vh);
+    }
     if (!a || !a->acb) return;
     std::lock_guard<std::mutex> g(a->acb_mu);
     if (a->acb_loaded) acb_window(a->acb, a->vw, a->vh);
+}
+
+long smp_acb_attach(const char *media_id, int player_type) {
+    if (!acb_on || !media_id || !*media_id) return 0;
+    AcbAPI_PlayerType t = static_cast<AcbAPI_PlayerType>(player_type >= 0 ? player_type : PLAYER_TYPE_VIDEO);
+    long id = acb.create();
+    if (!id) {
+        mt_log("[acb] create failed");
+        return 0;
+    }
+    if (!acb.initialize(id, t, acb_app_id, acb_event)) {
+        mt_log("[acb] initialize rejected");
+        acb.destroy(id);
+        return 0;
+    }
+    long old = 0;
+    {
+        std::lock_guard<std::mutex> g(foreign_mu);
+        old = foreign_id;
+        foreign_id = id;
+        foreign_vw = foreign_vh = 0;
+        foreign_loaded = false;
+        foreign_pending = -1;
+    }
+    if (old) smp_acb_detach(old); /* left behind by a session that did not end */
+    bool sink = acb.set_sink_type(id, SINK_TYPE_MAIN);
+    bool media = acb.set_media_id(id, media_id);
+    {
+        std::lock_guard<std::mutex> g(foreign_mu);
+        acb_window(id, 0, 0);
+    }
+    mt_log("[acb] %ld: media server pipeline %s (player type %d) - Sink %d, Media %d, LOADED when loaded", id,
+           media_id, static_cast<int>(t), sink, media);
+    return id;
+}
+
+void smp_acb_loaded(long id) {
+    if (!id) return;
+    std::lock_guard<std::mutex> g(foreign_mu);
+    if (id != foreign_id || foreign_loaded) return;
+    long task = 0;
+    int st = acb.set_state(id, APPSTATE_FOREGROUND, PLAYSTATE_LOADED, &task);
+    mt_log("[acb] %ld: LOADED %d%s", id, st, foreign_pending >= 0 ? ", then pending state" : "");
+    foreign_loaded = true;
+    if (foreign_pending >= 0) acb_state(id, static_cast<AcbAPI_PlayState>(foreign_pending));
+    foreign_pending = -1;
+}
+
+void smp_acb_playing(long id, bool playing) {
+    if (!id) return;
+    AcbAPI_PlayState st = playing ? PLAYSTATE_PLAYING : PLAYSTATE_PAUSED;
+    std::lock_guard<std::mutex> g(foreign_mu);
+    if (id == foreign_id && !foreign_loaded) foreign_pending = st;
+    else acb_state(id, st);
+}
+
+void smp_acb_video_info(long id, const char *json, int width, int height) {
+    if (!id) return;
+    std::lock_guard<std::mutex> g(foreign_mu);
+    if (id != foreign_id) return;
+    foreign_vw = width;
+    foreign_vh = height;
+    if (acb_opts.video_data && json) {
+        long task = 0;
+        int r = acb.set_media_video_data(id, json, &task);
+        mt_log("[acb] %ld: video data %dx%d -> %d", id, width, height, r);
+    }
+    acb_window(id, width, height);
+}
+
+void smp_acb_detach(long id) {
+    if (!id) return;
+    bool loaded = true;
+    {
+        std::lock_guard<std::mutex> g(foreign_mu);
+        if (id == foreign_id) {
+            loaded = foreign_loaded;
+            foreign_id = 0;
+            foreign_loaded = false;
+            foreign_pending = -1;
+        }
+    }
+    if (loaded) acb_state(id, PLAYSTATE_UNLOADED);
+    acb.finalize(id);
+    acb.destroy(id);
+    mt_log("[acb] %ld: media server pipeline released", id);
 }
 
 void smp_api_video_info(smp_api *a, const char *json, int width, int height) {

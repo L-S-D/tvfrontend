@@ -4,7 +4,8 @@
  * own: WebKit plays nothing itself, the page hands <video>/<audio> over to TVF
  * (res/hbbtv/media.js). Here the TV's media server (uMediaServer,
  * luna://com.webos.media) loads the address itself - MP4, HLS, DASH - and shows
- * it in TVF's video window; the live picture is paused meanwhile.
+ * it in TVF's video window (webOS 4 has none: there ACB binds the pipeline to
+ * the video plane); the live picture is paused meanwhile.
  *
  * State goes back to the page via act.update. Main thread only
  * (the Luna replies arrive on a foreign thread and are queued

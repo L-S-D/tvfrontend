@@ -9,6 +9,7 @@
 #include "luna.h"
 #include "player.h"
 #include "relay.h"
+#include "smp_api.h"
 
 #include <SDL.h>
 #include <pthread.h>
@@ -45,6 +46,7 @@ static struct {
     int gen;            /* session (discards replies of old sessions) */
     int id;             /* element of the page, 0 = none */
     char media_id[128]; /* from com.webos.media/load */
+    long acb;           /* webOS 4 (no exported window): ACB of the pipeline, 0 = none */
     luna_sub *sub;
     int loaded, playing, paused_req, ended;
     double start;       /* seek there after loadCompleted */
@@ -127,6 +129,10 @@ static void end_session(int unload) {
     if (S.sub) luna_unsubscribe(S.sub);
     S.sub = NULL;
     if (unload) call_id("unload");
+    if (S.acb) {
+        smp_acb_detach(S.acb);
+        S.acb = 0;
+    }
     S.gen++;
     S.media_id[0] = 0;
     S.loaded = S.playing = S.ended = 0;
@@ -336,18 +342,77 @@ static double num_ms(const cJSON *o, const char *k) {
     return cJSON_IsNumber(i) ? i->valuedouble / 1000.0 : -1;
 }
 
+/* webOS 4: the media server's videoInfo ({"width":..,"scanType":"progressive",
+ * "pixelAspectRatio":"1:1",..}) in the form StarfishMediaAPIs reports it and
+ * the LG browser passes on to ACB ({"context":..,"content":"movie","video":{..}}) */
+static char *acb_video_json(const cJSON *vi, int *w, int *h) {
+    const cJSON *jw = cJSON_GetObjectItemCaseSensitive(vi, "width");
+    const cJSON *jh = cJSON_GetObjectItemCaseSensitive(vi, "height");
+    if (!cJSON_IsNumber(jw) || !cJSON_IsNumber(jh) || jw->valuedouble <= 0 || jh->valuedouble <= 0) return NULL;
+    *w = (int) jw->valuedouble;
+    *h = (int) jh->valuedouble;
+    const cJSON *fr = cJSON_GetObjectItemCaseSensitive(vi, "frameRate");
+    const cJSON *br = cJSON_GetObjectItemCaseSensitive(vi, "bitRate");
+    const cJSON *afd = cJSON_GetObjectItemCaseSensitive(vi, "afd");
+    const cJSON *rot = cJSON_GetObjectItemCaseSensitive(vi, "rotation");
+    const cJSON *scan = cJSON_GetObjectItemCaseSensitive(vi, "scanType");
+    const cJSON *par = cJSON_GetObjectItemCaseSensitive(vi, "pixelAspectRatio");
+    const cJSON *hdr = cJSON_GetObjectItemCaseSensitive(vi, "hdrType");
+    int pa = 1, pb = 1;
+    if (cJSON_IsString(par) && (sscanf(par->valuestring, "%d:%d", &pa, &pb) != 2 || pa <= 0 || pb <= 0)) pa = pb = 1;
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "context", S.media_id);
+    cJSON_AddStringToObject(o, "content", "movie");
+    cJSON *v = cJSON_AddObjectToObject(o, "video");
+    cJSON_AddNumberToObject(v, "frameRate", cJSON_IsNumber(fr) ? fr->valuedouble : 0);
+    cJSON_AddStringToObject(v, "scanType",
+                            cJSON_IsString(scan) && strcasestr(scan->valuestring, "interlace") ? "VIDEO_INTERLACED"
+                                                                                                : "VIDEO_PROGRESSIVE");
+    cJSON_AddNumberToObject(v, "width", *w);
+    cJSON_AddNumberToObject(v, "height", *h);
+    cJSON_AddNumberToObject(v, "bitRate", cJSON_IsNumber(br) ? br->valuedouble : 0);
+    cJSON_AddBoolToObject(v, "adaptive", 1);
+    cJSON_AddStringToObject(v, "path", "network");
+    cJSON *p = cJSON_AddObjectToObject(v, "pixelAspectRatio");
+    cJSON_AddNumberToObject(p, "width", pa);
+    cJSON_AddNumberToObject(p, "height", pb);
+    cJSON_AddNumberToObject(v, "afd", cJSON_IsNumber(afd) ? afd->valuedouble : 0);
+    cJSON_AddNumberToObject(v, "rotation", cJSON_IsNumber(rot) ? rot->valuedouble : 0);
+    cJSON *d = cJSON_AddObjectToObject(v, "data3D");
+    cJSON_AddStringToObject(d, "originalPattern", "2d");
+    cJSON_AddStringToObject(d, "currentPattern", "2d");
+    cJSON_AddStringToObject(d, "typeLR", "LR");
+    cJSON_AddStringToObject(v, "hdrType", cJSON_IsString(hdr) ? hdr->valuestring : "none");
+    char *s = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    return s;
+}
+
 static void on_event(const cJSON *j) {
     const cJSON *e;
     if ((e = cJSON_GetObjectItemCaseSensitive(j, "loadCompleted"))) {
         mt_log("[media] loadCompleted");
+        smp_acb_loaded(S.acb);
         if (S.start > 0) hbbmedia_seek(S.id, S.start);
     } else if ((e = cJSON_GetObjectItemCaseSensitive(j, "playing"))) {
         S.playing = 1;
         mt_log("[media] playing");
+        smp_acb_loaded(S.acb); /* loadCompleted may have come before the subscription */
+        smp_acb_playing(S.acb, true);
         act.update(S.id, "playing", -1, S.dur, 0);
     } else if ((e = cJSON_GetObjectItemCaseSensitive(j, "paused"))) {
         S.playing = 0;
+        smp_acb_loaded(S.acb);
+        smp_acb_playing(S.acb, false);
         act.update(S.id, "paused", -1, -1, 0);
+    } else if ((e = cJSON_GetObjectItemCaseSensitive(j, "videoInfo"))) {
+        char *s = cJSON_PrintUnformatted(j);
+        mt_log("[media] event %.200s", s ? s : "?");
+        free(s);
+        int w = 0, h = 0;
+        char *v = S.acb ? acb_video_json(e, &w, &h) : NULL;
+        if (v) smp_acb_video_info(S.acb, v, w, h);
+        free(v);
     } else if ((e = cJSON_GetObjectItemCaseSensitive(j, "currentTime"))) {
         double t = num_ms(e, "currentTime");
         if (t >= 0) {
@@ -420,6 +485,13 @@ static void on_msg(rmsg *m) {
         if (cJSON_IsTrue(rv) && cJSON_IsString(mid)) {
             snprintf(S.media_id, sizeof(S.media_id), "%s", mid->valuestring);
             mt_log("[media] mediaId %s", S.media_id);
+            /* webOS 4 (no exported window, see main.c): ACB binds the
+             * pipeline to the video plane, as smp_api does for our own */
+            const char *win = act.window_id ? act.window_id() : "";
+            if (!(win && *win)) {
+                S.acb = smp_acb_attach(S.media_id, -1);
+                if (!S.acb) mt_log("[media] neither an exported window nor ACB: the picture stays invisible");
+            }
             char p[192];
             snprintf(p, sizeof(p), "{\"mediaId\":\"%s\"}", S.media_id);
             call("subscribe", p, 1);
@@ -427,6 +499,7 @@ static void on_msg(rmsg *m) {
              * before the subscription, without play the pipeline only prebuffers */
             S.loaded = 1;
             call_id(S.paused_req ? "pause" : "play");
+            smp_acb_playing(S.acb, !S.paused_req);
         } else {
             mt_log("[media] load rejected: %.200s", m->text);
             int id = S.id;

@@ -72,6 +72,22 @@ void smp_api_video_info(smp_api *a, const char *json, int width, int height);
  * to later pipelines. No effect without ACB (exported window: player) */
 void smp_api_set_rect(smp_api *a, int x, int y, int w, int h);
 
+/* ACB for a pipeline that someone else loaded (uMediaServer via Luna,
+ * hbbmedia.c): binds media_id to the main video plane in the window of
+ * smp_api_set_rect and reports its state. 0 = no ACB (webOS 5+ puts the
+ * picture into the exported window instead). One such pipeline at a time.
+ * player_type: AcbAPI_PlayerType, < 0 = PLAYER_TYPE_VIDEO */
+long smp_acb_attach(const char *media_id, int player_type);
+/* The pipeline is loaded (loadCompleted, at the latest "playing"): LOADED, then
+ * the state requested so far. Luna returns the mediaId before the TV services
+ * know the pipeline; LOADED before that fails (avblock "Invalid Context") and
+ * leaves ACB unloaded, the picture invisible. Repeated calls do nothing. */
+void smp_acb_loaded(long acb);
+void smp_acb_playing(long acb, bool playing); /* PLAYING or PAUSED, held until LOADED */
+/* VIDEO_INFO as StarfishMediaAPIs reports it ({"video":{...}}): video data, window */
+void smp_acb_video_info(long acb, const char *json, int width, int height);
+void smp_acb_detach(long acb); /* UNLOADED, then gone */
+
 smp_api *smp_api_create(void);
 void smp_api_destroy(smp_api *a);
 
