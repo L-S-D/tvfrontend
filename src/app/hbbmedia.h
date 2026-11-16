@@ -48,4 +48,9 @@ void hbbmedia_stop_all(void);
 
 int hbbmedia_active(void);
 
+/* TVF in the background (1): no new loads */
+void hbbmedia_background(int on);
+/* wait up to ms for the replies of calls under way (unload before quitting) */
+void hbbmedia_flush(int ms);
+
 void hbbmedia_poll(void);

@@ -26,6 +26,8 @@ static void (*g_wake)(void);
 static player *g_pl;
 static int g_drm;          /* next loads with the PlayReady client (option.drm) */
 static int g_transport_in_option; /* test aid: transport type inside option (old way) */
+static int g_background;   /* TVF in the background: no new loads */
+static int g_pending;      /* calls without a reply yet (not the subscription), hbbmedia_flush */
 
 void hbbmedia_set_player(struct player *p) { g_pl = p; }
 void hbbmedia_drm(int on) { g_drm = on; }
@@ -75,6 +77,7 @@ typedef struct {
 
 static void on_luna(const char *reply, void *user) {
     rctx *c = user;
+    if (c->kind != 1) __atomic_sub_fetch(&g_pending, 1, __ATOMIC_SEQ_CST);
     size_t n = reply ? strlen(reply) : 0;
     rmsg *m = malloc(sizeof(rmsg) + n + 1);
     if (m) {
@@ -107,7 +110,9 @@ static void call(const char *method, const char *payload, int kind) {
         }
         return;
     }
+    __atomic_add_fetch(&g_pending, 1, __ATOMIC_SEQ_CST);
     if (luna_call(uri, payload, on_luna, c) != 0) {
+        __atomic_sub_fetch(&g_pending, 1, __ATOMIC_SEQ_CST);
         free(c);
         mt_log("[media] %s failed", method);
     }
@@ -162,6 +167,13 @@ void hbbmedia_play(int id, const char *url, const char *mime, double start) {
      * previous one (its reply unloads the pipeline again right away) */
     end_session(1);
     S.drm_wait_id = 0;
+    if (g_background) {
+        /* the media server does not answer a load from an app in the background
+         * (webOS 4: it spun at 100 % CPU until TVF quit) */
+        mt_log("[media] TVF in the background: not loading %.200s", url);
+        act.update(id, "error", -1, -1, -1);
+        return;
+    }
     S.id = id;
     S.start = start > 0 ? start : 0;
     S.time = S.start;
@@ -297,6 +309,23 @@ void hbbmedia_stop_all(void) {
 }
 
 int hbbmedia_active(void) { return S.media_id[0] != 0 || S.sub != NULL || S.own || S.drm_wait_id; }
+
+void hbbmedia_background(int on) { g_background = on; }
+
+/* wait up to ms for the replies of the calls still under way (unload when quitting:
+ * the media server's pipelines outlive TVF - an orphaned one keeps the decoder, the
+ * next UHD load then crashed the media server on webOS 4); a load answered only
+ * now is unloaded again here (on_msg) */
+void hbbmedia_flush(int ms) {
+    uint32_t until = SDL_GetTicks() + (uint32_t) ms;
+    while (__atomic_load_n(&g_pending, __ATOMIC_SEQ_CST) > 0 && (int32_t) (SDL_GetTicks() - until) < 0) {
+        hbbmedia_poll();
+        SDL_Delay(10);
+    }
+    hbbmedia_poll();
+    int left = __atomic_load_n(&g_pending, __ATOMIC_SEQ_CST);
+    if (left > 0) mt_log("[media] %d call(s) still without a reply", left);
+}
 
 /* HLS via our own player: state to the page */
 static void own_poll(void) {

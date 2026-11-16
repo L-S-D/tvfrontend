@@ -1766,6 +1766,11 @@ static void go_background(const char *why) {
     app.background = 1;
     reset_keys();
     mt_log("[app] background (%s): playback stopped", why);
+    /* the HbbTV app ends like on an input change of the TV; its media server
+     * pipeline would otherwise keep the decoder */
+    hbbmedia_background(1);
+    hbbweb_close("background");
+    hbbmedia_stop_all();
     if (recplay_active()) recplay_suspend();
     else {
         tshift_stop();
@@ -1777,6 +1782,7 @@ static void go_foreground(const char *why) {
     if (!app.background) return;
     app.background = 0;
     mt_log("[app] foreground (%s)", why);
+    hbbmedia_background(0);
     if (recplay_active()) recplay_resume();
     else if (app.url[0]) {
         tshift_on_play(app.url, app.timeshift);
@@ -2599,6 +2605,13 @@ int main(int argc, char *argv[]) {
     }
 
     mt_log("[app] exit - releasing decoder");
+    /* HbbTV media: the media server's pipeline outlives TVF (also on the restart
+     * after the settings) - unload it and wait for the reply */
+    app.background = 1; /* closing the app must not start the live picture again */
+    hbbmedia_background(1);
+    hbbweb_close("exit");
+    hbbmedia_stop_all();
+    hbbmedia_flush(1500);
     player_destroy(app.pl);
     ui_shutdown();
     if (wid[0]) destroy_win(wid);
