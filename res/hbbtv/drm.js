@@ -123,6 +123,7 @@
             '<audio_profile name="MP4_HEAAC" type="audio/mp4" transport="dash" DRMSystemID="' + DRMID + '"/>' +
             (EME ? video(false, true) + video(true, true)
                  : video(false, false) + video(true, false) + video(true, true)) +
+            (window.__HBBTV_FWD && window.__HBBTV_FWD.uhd ? (window.__HBBTV_HEVC_CAPS || '') : '') +
             '<drm DRMSystemID="' + DRMID + '">MP4_CENC</drm></profilelist>', 'text/xml');
         return caps;
       }, configurable: true

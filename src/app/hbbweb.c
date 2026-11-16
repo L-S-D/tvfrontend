@@ -273,6 +273,9 @@ static char *user_script(void) {
      * after a PlayReady initiator of the DRM agent (drm.js) - only LG's pipeline
      * with the DRM client (hbbmedia.c) can handle those */
     if (g_native) cJSON_AddTrueToObject(fwd, "selective");
+    /* HEVC/UHD in the capabilities on a UHD panel: WebKit's sinks and LG's own
+     * pipeline (media.js, webOS 4) both decode HEVC up to 2160p */
+    if (cfg.uhd) cJSON_AddTrueToObject(fwd, "uhd");
     /* preferred UI/audio/subtitle language of the OIPF configuration object
      * (ISO 639-2) follows TVF's UI language */
     cJSON_AddStringToObject(fwd, "lang", iso639_2(i18n_lang()));

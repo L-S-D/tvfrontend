@@ -986,6 +986,18 @@
       }
     };
     // application/oipfCapabilities
+    // HEVC up to UHD (TV with a UHD panel, __HBBTV_FWD.uhd): the profile names of the
+    // TV's own HbbTV browser (libHbbtv2Plugin) and its video_display_format - apps
+    // such as ZDF only offer UHD to devices whose capabilities name them
+    var HEVC_CAPS = (function () {
+      var x = '';
+      ['MP4_HEVC_HD_25_8_HEAAC_EBUTTD', 'MP4_HEVC_HD_25_10_HEAAC_EBUTTD', 'MP4_HEVC_UHD_25_HEAAC_EBUTTD'].forEach(function (n) {
+        x += '<video_profile name="' + n + '" type="video/mp4"/>' +
+             '<video_profile name="' + n + '" type="video/mp4" transport="dash"/>';
+      });
+      return x + '<video_display_format width="3840" height="2160" frame_rate="50" bit_depth="10" colorimetry="bt709 bt2020"/>';
+    })();
+    window.__HBBTV_HEVC_CAPS = HEVC_CAPS;
     proto.hasCapability = function (c) { return /HBBTV|DL|DASH/i.test(String(c)); };
     try {
       var caps = null;
@@ -998,6 +1010,7 @@
               '<video_profile name="MP4_AVC_SD_25_HEAAC" type="video/mp4"/><video_profile name="MP4_AVC_HD_25_HEAAC" type="video/mp4"/>' +
               '<video_profile name="MP4_AVC_SD_25_HEAAC" type="video/mp4" transport="dash"/>' +
               '<video_profile name="MP4_AVC_HD_25_HEAAC" type="video/mp4" transport="dash"/>' +
+              (window.__HBBTV_FWD && window.__HBBTV_FWD.uhd ? HEVC_CAPS : '') +
               '</profilelist>', 'text/xml');
           return caps;
         }, configurable: true
