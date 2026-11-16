@@ -54,6 +54,7 @@
 #include "ui_sdl.h"
 
 #include <SDL.h>
+#include <ctype.h>
 #include <pthread.h>
 #include <SDL_webOS.h>
 #include <arpa/inet.h>
@@ -1342,6 +1343,7 @@ static void cfg_get(const char *key, char *out, size_t n) {
     if (!strcmp(key, "tvh.http_port")) snprintf(out, n, "9981");
     else if (!strcmp(key, "tvh.htsp_port")) snprintf(out, n, "9982");
     else if (!strcmp(key, "hbbtv.egress")) snprintf(out, n, "rules");
+    else if (!strcmp(key, "hbbtv.ua")) snprintf(out, n, "auto");
     else if (!strcmp(key, "keys.layout")) snprintf(out, n, "classic");
     else if (!strcmp(key, "ui.lang")) snprintf(out, n, "auto");
     else if (!strcmp(key, "kore.name")) snprintf(out, n, "TVF");
@@ -1985,6 +1987,102 @@ static void kodi_front(void) {
     if (other || app.background) bring_to_front("Kore channel change/recording");
 }
 
+/* a JSON file of the system (nyx), NULL if missing */
+static cJSON *read_json_file(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    char buf[8192];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    return cJSON_Parse(buf);
+}
+
+/* HbbTV part of the User-Agent (TS 102 796: capabilities; vendor; model;
+ * software version; hardware version; family; reserved). Apps decide features
+ * by it: ZDF UHD, ProSieben/SAT.1 the "Joyn starten" link (only for a device
+ * year it knows: "WEBOS1".."WEBOS6.0", "WEBOS22", "WEBOS23" - an unknown WEBOS..
+ * ends its detection; only without any "WEBOS<digit>" it reads the year of a
+ * "W24_".."W26_" token, so LG's devices from 2024 evidently carry no WEBOS..
+ * token any more). Setting "hbbtv.ua":
+ *   auto   - this TV: up to webOS 23 "WEBOS<name> <firmware>", from webOS 24
+ *            "webOS TV <name> <firmware>; W<yy>_<board>" (yy = model year);
+ *   webos6 - the former fixed "WEBOS6.0" (LG 2021), with model and family;
+ *   lg2024 - always the form from webOS 24 on, model year at least 2024.
+ * The webOS name follows LG's numbering: platform 7..11 = webOS 22..26, below
+ * that the platform version (4.4, 6.0). Model year and family come from the
+ * OTA id ("HE_DTV_W24O_AFABATAA" -> 2024, "DTV_W24O"), the board from
+ * "device_name" ("o24" -> "O24", also the model year where there is no OTA id).
+ * *uhd: the panel is UHD ("panel_under_uhd" "0"), the TV decodes HEVC up to 2160p. */
+static void hbbtv_ua_device(char *out, size_t n, int *uhd, const char *mode) {
+    char model[48] = "webOS", sw[48] = "WEBOS6.0", family[32] = "", hw[32] = "1", board[16] = "TV";
+    int year = 0; /* model year, two digits */
+    *uhd = 0;
+    cJSON *dev = read_json_file("/var/run/nyx/device_info.json");
+    const cJSON *m = dev ? cJSON_GetObjectItemCaseSensitive(dev, "model_name") : NULL;
+    if (!cJSON_IsString(m) || !m->valuestring[0]) /* webOS 4 (2018): only "product_id" */
+        m = dev ? cJSON_GetObjectItemCaseSensitive(dev, "product_id") : NULL;
+    if (cJSON_IsString(m) && m->valuestring[0]) {
+        snprintf(model, sizeof(model), "%s", m->valuestring);
+        char *dot = strchr(model, '.'); /* "OLED77G48LW.DEUQLJP" -> "OLED77G48LW" */
+        if (dot) *dot = 0;
+    }
+    /* UHD panel: "panel_under_uhd" (webOS 24 on); older TVs lack it - LG's OLED TVs
+     * are all UHD or above, the model name says OLED */
+    const cJSON *pu = dev ? cJSON_GetObjectItemCaseSensitive(dev, "panel_under_uhd") : NULL;
+    if (cJSON_IsString(pu)) *uhd = !strcmp(pu->valuestring, "0");
+    else *uhd = !strncmp(model, "OLED", 4);
+    const cJSON *dn = dev ? cJSON_GetObjectItemCaseSensitive(dev, "device_name") : NULL;
+    if (cJSON_IsString(dn) && dn->valuestring[0]) {
+        snprintf(board, sizeof(board), "%s", dn->valuestring);
+        for (char *p = board; *p; p++) *p = (char) toupper((unsigned char) *p);
+    }
+    /* model year from the board ("o24", "o18": letter + two digits), the OTA id below
+     * has the say where there is one */
+    int board_year = 0;
+    if (isalpha((unsigned char) board[0]) && isdigit((unsigned char) board[1]) && isdigit((unsigned char) board[2]))
+        board_year = (board[1] - '0') * 10 + (board[2] - '0');
+    cJSON *os = read_json_file("/var/run/nyx/os_info.json");
+    const cJSON *ota = os ? cJSON_GetObjectItemCaseSensitive(os, "ota_id") : NULL;
+    const char *d = cJSON_IsString(ota) ? strstr(ota->valuestring, "DTV_") : NULL;
+    if (d) {
+        const char *e = strchr(d + 4, '_');
+        size_t l = e ? (size_t) (e - d) : strlen(d);
+        if (l < sizeof(family)) snprintf(family, sizeof(family), "%.*s", (int) l, d);
+        if (d[4] == 'W' && isdigit((unsigned char) d[5]) && isdigit((unsigned char) d[6]))
+            year = (d[5] - '0') * 10 + (d[6] - '0');
+    }
+    const cJSON *rel = os ? cJSON_GetObjectItemCaseSensitive(os, "webos_release") : NULL;
+    const cJSON *fw = os ? cJSON_GetObjectItemCaseSensitive(os, "webos_manufacturing_version") : NULL;
+    const char *fws = cJSON_IsString(fw) && fw->valuestring[0] ? fw->valuestring : NULL;
+    int major = 0, minor = 0;
+    char name[16] = "";
+    if (!year) year = board_year;
+    if (cJSON_IsString(rel) && sscanf(rel->valuestring, "%d.%d", &major, &minor) >= 1 && major > 0) {
+        /* up to 2021 the TVs keep the webOS of their year, and LG names it by
+         * the year, not by the platform version (2018: platform 4.4 = "webOS 4.0") */
+        static const char *const by_year[] = {"1.0", "2.0", "3.0", "3.5", "4.0", "4.5", "5.0", "6.0"}; /* 2014..2021 */
+        if (major >= 7) snprintf(name, sizeof(name), "%d", major + 15);
+        else if (year >= 14 && year <= 21) snprintf(name, sizeof(name), "%s", by_year[year - 14]);
+        else snprintf(name, sizeof(name), "%d.%d", major, minor);
+    }
+    if (!year && major >= 9) year = major + 15; /* no OTA id: webOS 24 came with the 2024 models */
+    int lg2024 = (mode && !strcmp(mode, "lg2024")) || ((!mode || !strcmp(mode, "auto")) && major >= 9);
+    if (mode && !strcmp(mode, "webos6")) {
+        snprintf(sw, sizeof(sw), "WEBOS6.0");
+    } else if (lg2024) {
+        if (year < 24) year = 24;
+        if (name[0]) snprintf(sw, sizeof(sw), "webOS TV %s%s%s", name, fws ? " " : "", fws ? fws : "");
+        else snprintf(sw, sizeof(sw), "webOS TV");
+        snprintf(hw, sizeof(hw), "W%02d_%s", year % 100, board);
+    } else if (name[0]) {
+        snprintf(sw, sizeof(sw), "WEBOS%s%s%s", name, fws ? " " : "", fws ? fws : "");
+    }
+    cJSON_Delete(dev);
+    cJSON_Delete(os);
+    snprintf(out, n, "HbbTV/1.5.1 (+DRM; LGE; %.32s; %.40s; %.20s; %.20s;)", model, sw, hw, family);
+}
+
 /* restart after the settings: the same program in the same process (for
  * webOS it stays the same app), launch parameters without the remembered
  * settings - they would otherwise overwrite the new values */
@@ -2290,9 +2388,14 @@ int main(int argc, char *argv[]) {
         /* OIPF replacement and dash.js from the package (no gateway): the page fetches
          * dash.js from the relay when needed (hbbweb.c) */
         snprintf(hc.polyfill, sizeof(hc.polyfill), "%s/hbbtv/polyfill.js", res);
+        char hbbua[150];
+        char uamode[16];
+        cfg_get("hbbtv.ua", uamode, sizeof(uamode));
+        hbbtv_ua_device(hbbua, sizeof(hbbua), &hc.uhd, uamode);
         snprintf(hc.user_agent, sizeof(hc.user_agent),
-                 "Mozilla/5.0 (Linux; armv7l) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15 "
-                 "HbbTV/1.5.1 (+DRM; LGE; webOS; WEBOS6.0; 1; ;)");
+                 "Mozilla/5.0 (Linux; armv7l) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15 %s",
+                 hbbua);
+        mt_log("[hbbweb] User-Agent: %s%s", hc.user_agent, hc.uhd ? " (UHD panel: HEVC profiles)" : "");
         snprintf(hc.media_js, sizeof(hc.media_js), "%s/hbbtv/media.js", res);
         snprintf(hc.drm_js, sizeof(hc.drm_js), "%s/hbbtv/drm.js", res);
         /* country egress (rules as in the HbbTV gateway, but in TVF): for all

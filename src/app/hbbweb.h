@@ -46,6 +46,8 @@ typedef struct {
     char drm_js[600];     /* res/hbbtv/drm.js: OIPF DRM agent -> LG's PlayReady (hbbdrm.c) */
     char media_sock[64];  /* media server (webmedia.c): WebKit plays by itself if the bundle
                            * supports "media"; "" = media.js emulation */
+    int uhd;              /* UHD panel (HEVC up to 2160p): the capabilities name the HEVC
+                           * profiles - apps such as ZDF only offer UHD then */
 } hbbweb_cfg;
 
 void hbbweb_init(const hbbweb_cfg *cfg, const hbbweb_actions *a, void (*wake)(void));

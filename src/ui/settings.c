@@ -67,6 +67,9 @@ static const char *const EG_V[] = {"rules", "direct", "proxy"};
 static const char *const KL_V[] = {"classic", "hbbtv"};
 static const char *const KL_L[] = {N_("Standard"), N_("HbbTV first")};
 static const char *const EG_L[] = {N_("Rules per channel"), N_("Direct"), N_("Fixed proxy")};
+/* HbbTV device identification (User-Agent, main.c hbbtv_ua_device) */
+static const char *const UA_V[] = {"auto", "webos6", "lg2024"};
+static const char *const UA_L[] = {N_("This TV"), N_("LG 2021 (webOS 6)"), N_("LG from 2024")};
 
 #define EGRESS_PROXY "hbbtv.egress_proxy" /* pseudo key: fixed proxy of the egress choice */
 
@@ -136,6 +139,7 @@ static void build_items(void) {
     add(T_HEADER, NULL, N_("HbbTV"));
     add_choice("hbbtv.egress", N_("Internet access"), EG_V, EG_L, 3);
     add(T_TEXT, EGRESS_PROXY, N_("Fixed proxy"));
+    add_choice("hbbtv.ua", N_("Device identification"), UA_V, UA_L, 3);
     add(T_HEADER, NULL, N_("Kodi remote (Kore)"));
     it = add(T_TEXT, "kore.name", N_("Name"));
     if (it) it->need_value = 1;
