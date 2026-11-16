@@ -3,6 +3,7 @@
 #include "webr.h"
 
 #include "log.h"
+#include "prefs.h"
 #include "ui_sdl.h"
 
 #include <dlfcn.h>
@@ -189,17 +190,53 @@ int webr_start(const char *bundle, const char *data_dir, int w, int h) {
      * the environment (the WebProcess inherits it from the helper) */
     char envvar[96];
     char **envp = environ;
+    /* extra environment for the renderer (diagnosis, e.g. GST_DEBUG): setting
+     * "web.env", otherwise the file "env" in the data directory; "KEY=value"
+     * entries separated by ';' or line breaks */
+    static char extra[1024];
+    char *xv[16];
+    size_t nx = 0;
+    const cJSON *pe = prefs_get("web.env");
+    extra[0] = 0;
+    if (cJSON_IsString(pe) && pe->valuestring[0]) {
+        snprintf(extra, sizeof(extra), "%s", pe->valuestring);
+    } else if (data_dir && *data_dir) {
+        char ef[512];
+        snprintf(ef, sizeof(ef), "%s/env", data_dir);
+        FILE *f = fopen(ef, "r");
+        if (f) {
+            size_t got = fread(extra, 1, sizeof(extra) - 1, f);
+            extra[got] = 0;
+            fclose(f);
+        }
+    }
+    if (extra[0]) {
+        mt_log("[web] extra environment: %s", extra);
+        char *save = NULL;
+        for (char *t = strtok_r(extra, ";\r\n", &save); t && nx < 16; t = strtok_r(NULL, ";\r\n", &save))
+            if (strchr(t, '=') && t[0] != '=') xv[nx++] = t;
+    }
     if (g_media_sock[0]) {
         argv[ac++] = "--media";
         snprintf(envvar, sizeof(envvar), "TVF_MEDIA_SOCK=%s", g_media_sock);
+    }
+    if (g_media_sock[0] || nx) {
         size_t n = 0;
         while (environ[n]) n++;
-        envp = calloc(n + 2, sizeof(char *));
+        envp = calloc(n + 2 + nx, sizeof(char *));
         if (envp) {
             size_t k = 0;
-            for (size_t i = 0; i < n; i++)
-                if (strncmp(environ[i], "TVF_MEDIA_SOCK=", 15)) envp[k++] = environ[i];
-            envp[k++] = envvar;
+            for (size_t i = 0; i < n; i++) {
+                if (g_media_sock[0] && !strncmp(environ[i], "TVF_MEDIA_SOCK=", 15)) continue;
+                int over = 0;
+                for (size_t j = 0; j < nx && !over; j++) {
+                    size_t kl = (size_t) (strchr(xv[j], '=') - xv[j]) + 1;
+                    over = !strncmp(environ[i], xv[j], kl);
+                }
+                if (!over) envp[k++] = environ[i];
+            }
+            if (g_media_sock[0]) envp[k++] = envvar;
+            for (size_t j = 0; j < nx; j++) envp[k++] = xv[j];
             envp[k] = NULL;
         } else {
             envp = environ;

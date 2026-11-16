@@ -907,7 +907,7 @@ static void on_event(const cJSON *ev) {
     } else if (!strcmp(e, "msg")) {
         on_msg(cJSON_GetObjectItemCaseSensitive(ev, "data"));
     } else if (!strcmp(e, "console")) {
-        mt_log("[web:js] %.300s", jstr(ev, "text") ? jstr(ev, "text") : "");
+        mt_log("[web:js] %.1900s", jstr(ev, "text") ? jstr(ev, "text") : "");
     } else if (!strcmp(e, "loaded")) {
         mt_log("[hbbweb] loaded %s", jstr(ev, "url") ? jstr(ev, "url") : "");
     } else if (!strcmp(e, "loadFailed")) {
