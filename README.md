@@ -19,6 +19,8 @@ Live TV, programme guide, recordings, timeshift, teletext and HbbTV – with ver
 
 - **Live TV** with channel banner (now/next, logo, audio and video details), channel groups,
   digits, previous channel.
+- **Radio**: channels without a picture play their sound and show logo, name and programme on
+  a dark screen that moves now and then (OLED).
 - **Programme guide** as a time grid or now/next list, with programme details.
 - **Timeshift**: pause, jump ±30 s, back to live (uses tvheadend's timeshift).
 - **Recordings**: schedule from the guide (also series), browse, resume where you stopped.
@@ -169,7 +171,8 @@ HbbTV TV; the colour keys then belong to the app and TVF's functions move to lon
 ### Kore on your phone
 
 Open Kore, add a host and pick **TVF** from the list (or enter the TV's IP address, port 8080).
-You get the channels with now/next, the programme guide, recordings and timers; you can switch
+You get the channels with now/next (radio channels in Kore's radio section), the programme guide,
+recordings and timers; you can switch
 channels, play and schedule recordings and use the remote pad. Name, ports and an optional password
 are on TVF's settings page. If the TV is in standby, Kore can wake it up (the TV needs *Turn on via
 Wi-Fi/LAN*).

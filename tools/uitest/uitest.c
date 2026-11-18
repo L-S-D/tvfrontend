@@ -3,7 +3,10 @@
  * PNG (over a stand-in "video"). Keys from argv.
  *   uitest <res> <grid.json> <out-prefix> [step ...]
  * Step: key name (UP DOWN LEFT RIGHT OK BACK RED GREEN YELLOW BLUE CH+ CH-),
- * "open", "osd", "settings", "shot" (write PNG), D0..D9 digits. */
+ * "open", "osd", "settings", "shot" (write PNG), D0..D9 digits; "radio" shows
+ * the radio screen (logo from $RADIO_LOGO, an http URL), "radio0" without a
+ * logo and a programme, "skip:<ms>" moves the clock ahead (the radio card moves
+ * every minute). */
 #include "choice.h"
 #include "epg.h"
 #include "info.h"
@@ -13,6 +16,7 @@
 #include "keys.h"
 #include "log.h"
 #include "osd.h"
+#include "radio.h"
 #include "ui.h"
 #include "lodepng.h"
 
@@ -28,10 +32,11 @@ static uint8_t *fb;
 static int shots;
 static const char *prefix;
 
+static uint32_t skew; /* "skip:<ms>": the clock jumps ahead */
 static uint32_t tick(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t) (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+    return (uint32_t) (ts.tv_sec * 1000 + ts.tv_nsec / 1000000) + skew;
 }
 static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) { (void) a; (void) px; lv_display_flush_ready(d); }
 static void req(long s, long d) { printf("-> grid request start=%ld dur=%ld\n", s, d); }
@@ -62,6 +67,7 @@ static void pump(int ms) {
     uint32_t end = tick() + (uint32_t) ms;
     while ((int32_t) (end - tick()) > 0) {
         ui_poll();
+        radio_tick();
         lv_timer_handler();
         usleep(5000);
     }
@@ -118,6 +124,7 @@ int main(int argc, char **argv) {
     lv_display_set_flush_cb(d, flush);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_TRANSP, 0);
     ui_res_init(argv[1], NULL);
+    radio_init();
     osd_init();
     epg_actions a = {req, tune, rec};
     epg_init(&a);
@@ -220,6 +227,25 @@ int main(int argc, char **argv) {
             osd_set_rx(&r);
         } else if (!strcmp(s, "toast")) {
             osd_message("Englisch (Dolby Digital)", 3000, 0);
+        } else if (!strncmp(s, "skip:", 5)) {
+            skew += (uint32_t) atoi(s + 5);
+            pump(300);
+        } else if (!strcmp(s, "radio0")) { /* without a logo and a programme */
+            radio_set(9901, "NRK P1 (DAB GSE)", "", NULL, NULL);
+            radio_show(1);
+        } else if (!strcmp(s, "radio")) {
+            epg_entry nw, nx;
+            memset(&nw, 0, sizeof(nw));
+            memset(&nx, 0, sizeof(nx));
+            snprintf(nw.title, sizeof(nw.title), "Nitimen med Rune Thomassen og en veldig lang tittel som ruller");
+            nw.start = time(NULL) - 1500;
+            nw.stop = time(NULL) + 2100;
+            snprintf(nx.title, sizeof(nx.title), "Dagsnytt");
+            nx.start = nw.stop;
+            nx.stop = nw.stop + 600;
+            const char *lg = getenv("RADIO_LOGO");
+            radio_set(9001, "NRK P1 Stor-Oslo", lg ? lg : "", &nw, &nx);
+            radio_show(1);
         } else if (!strcmp(s, "osd")) {
             osd_set_channel(210, "Sky Documentaries", "");
             epg_entry nw, nx;

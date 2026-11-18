@@ -36,6 +36,7 @@
 #include "luna.h"
 #include "mdns.h"
 #include "osd.h"
+#include "radio.h"
 #include "player.h"
 #include "prefs.h"
 #include "recbrowser.h"
@@ -535,6 +536,8 @@ static void retry_status(const player_status *rs, uint32_t nowt) {
         else if (rs->http_status >= 300)
             snprintf(msg, sizeof(msg), _("%s not available (HTTP %d) \xE2\x80\x93 retrying in %d s"), name,
                      rs->http_status, left);
+        else if (rs->radio)
+            snprintf(msg, sizeof(msg), _("%s delivers no sound \xE2\x80\x93 retrying in %d s"), name, left);
         else snprintf(msg, sizeof(msg), _("%s delivers no picture \xE2\x80\x93 retrying in %d s"), name, left);
     } else if (app.retries > 0 && !rs->first_frame) {
         snprintf(msg, sizeof(msg), _("%s \xE2\x80\x93 retrying \xE2\x80\xA6"), name);
@@ -548,6 +551,26 @@ static void retry_status(const player_status *rs, uint32_t nowt) {
     }
     snprintf(app.retry_text, sizeof(app.retry_text), "%s", msg);
     osd_message(msg, 0, 1);
+}
+
+/* ---------------- Radio ---------------- */
+
+/* a channel without a picture shows a screen of its own: as soon as the
+ * session finds no video stream, for a radio channel of tvh already while it
+ * starts (until a first picture says otherwise). Not over HbbTV, HbbTV media,
+ * recordings, and not in the background. */
+static void radio_update(void) {
+    player_status rs;
+    player_status_get(app.pl, &rs);
+    int radio = rs.radio || (tvsrc_channel_radio(app.channel) && rs.active && !rs.first_frame);
+    int on = radio && app.url[0] && !app.background && !recplay_active() && !app.hbbtv_live_off && !hbbweb_active();
+    if (on) {
+        epg_entry now, next;
+        osd_get_nownext(&now, &next);
+        radio_set(app.channel, app.chname, app.icon, &now, &next);
+    }
+    radio_show(on);
+    radio_tick();
 }
 
 /* ---------------- Reception (tvh, banner below the logo) ---------------- */
@@ -2357,7 +2380,8 @@ int main(int argc, char *argv[]) {
     }
     if (ui_init(ren, SCREEN_W, SCREEN_H, res) != 0) return 1;
     subs_actions sa = {subs_now_pts};
-    subs_init(&sa); /* first: lies below banner and menus */
+    radio_init(); /* the lowest: a channel without a picture */
+    subs_init(&sa); /* lies below banner and menus */
     osd_init();
     info_init(); /* above the banner */
     epg_actions ea = {epg_request, epg_tune, epg_record};
@@ -2556,6 +2580,7 @@ int main(int argc, char *argv[]) {
             retry_clear(); /* recording, background, pause */
         }
         reception_tick();
+        radio_update();
         recplay_tick();
         info_tick();
         hbbweb_poll();

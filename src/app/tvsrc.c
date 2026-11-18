@@ -119,6 +119,7 @@ typedef struct {
     uint32_t now_id, next_id;
     int dvb;
     int iptv1; /* first service is IPTV (no DVB mux) */
+    int radio; /* all its services are radio services (tvh service type "Radio") */
     tvev **ev; /* sorted by start */
     int nev, cev;
 } tvch;
@@ -302,11 +303,16 @@ static void ch_apply(const cJSON *j) {
     const cJSON *sv = cJSON_GetObjectItemCaseSensitive(j, "services");
     if (cJSON_IsArray(sv)) {
         c->dvb = 0;
+        int nsv = 0, nradio = 0;
         const cJSON *s;
         cJSON_ArrayForEach(s, sv) {
             const char *n = jstr(s, "name");
+            const char *ty = jstr(s, "type");
             if (n && svc_is_dvb(n)) c->dvb = 1;
+            nsv++;
+            if (ty && !strcmp(ty, "Radio")) nradio++;
         }
+        c->radio = nsv > 0 && nradio == nsv;
         const char *n0 = jstr(cJSON_GetArrayItem(sv, 0), "name");
         c->iptv1 = n0 && !svc_is_dvb(n0);
     }
@@ -565,22 +571,26 @@ int tvsrc_group_name(uint32_t tag, char *out, size_t n) {
     return 1;
 }
 
-int tvsrc_channels(uint32_t tag, int *nums, int max) {
+int tvsrc_channels_kind(uint32_t tag, int radio, int *nums, int max) {
     sort_channels();
     const tvtag *t = tag ? map_get(&tags, tag) : NULL;
     if (tag && !t) return 0;
     int k = 0;
     for (int i = 0; i < nsorted; i++) {
         const tvch *c = sorted[i];
-        if (t) {
-            int in = 0;
-            for (int m = 0; m < t->nmem && !in; m++) in = t->mem[m] == c->id;
-            if (!in) continue;
-        }
+        if (!c->radio != !radio) continue;
+        int in = !t;
+        for (int m = 0; t && m < t->nmem && !in; m++) in = t->mem[m] == c->id;
+        if (!in) continue;
         if (k < max) nums[k] = c->num;
         k++;
     }
     return k;
+}
+
+int tvsrc_channel_radio(int num) {
+    const tvch *c = ch_by_num(num);
+    return c && c->radio;
 }
 
 int tvsrc_channel_meta(int num, char *name, size_t nn, char *icon, size_t ni) {

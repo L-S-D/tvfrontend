@@ -991,7 +991,7 @@ static cJSON *channel_item(int num, const cJSON *props) {
     cJSON_AddStringToObject(o, "label", name);
     if (has(props, "channel")) cJSON_AddStringToObject(o, "channel", name);
     if (has(props, "channelnumber")) cJSON_AddNumberToObject(o, "channelnumber", num);
-    if (has(props, "channeltype")) cJSON_AddStringToObject(o, "channeltype", "tv");
+    if (has(props, "channeltype")) cJSON_AddStringToObject(o, "channeltype", tvsrc_channel_radio(num) ? "radio" : "tv");
     if (has(props, "hidden")) cJSON_AddBoolToObject(o, "hidden", 0);
     if (has(props, "locked")) cJSON_AddBoolToObject(o, "locked", 0);
     if (has(props, "thumbnail")) cJSON_AddStringToObject(o, "thumbnail", img);
@@ -1039,9 +1039,10 @@ static uint32_t group_of(const cJSON *params, int *radio) {
 static cJSON *get_channels(const cJSON *params) {
     int radio;
     uint32_t tag = group_of(params, &radio);
-    int total = radio ? 0 : tvsrc_channels(tag, NULL, 0);
+    /* radio channels only in "allradio", the TV groups without them */
+    int total = tvsrc_channels_kind(tag, radio, NULL, 0);
     int *nums = total ? malloc(sizeof(int) * (size_t) total) : NULL;
-    if (nums) tvsrc_channels(tag, nums, total);
+    if (nums) tvsrc_channels_kind(tag, radio, nums, total);
     int start, end;
     range(params, nums ? total : 0, &start, &end);
     const cJSON *props = cJSON_GetObjectItemCaseSensitive(params, "properties");
@@ -1168,7 +1169,7 @@ static cJSON *timer_item(const cJSON *t, const cJSON *props) {
     if (has(props, "summary"))
         cJSON_AddStringToObject(o, "summary", pstr(t, "subtitle")[0] ? pstr(t, "subtitle") : pstr(t, "description"));
     if (has(props, "channelid")) cJSON_AddNumberToObject(o, "channelid", pnum(t, "channelNumber", 0));
-    if (has(props, "isradio")) cJSON_AddBoolToObject(o, "isradio", 0);
+    if (has(props, "isradio")) cJSON_AddBoolToObject(o, "isradio", tvsrc_channel_radio((int) pnum(t, "channelNumber", 0)));
     if (has(props, "istimerrule")) cJSON_AddBoolToObject(o, "istimerrule", 0);
     if (has(props, "ismanual")) cJSON_AddBoolToObject(o, "ismanual", ev <= 0);
     if (has(props, "starttime")) add_time(o, "starttime", start);
@@ -1367,7 +1368,7 @@ static cJSON *player_item(const cJSON *params) {
         if (!strcmp(k, "title") || !strcmp(k, "showtitle")) cJSON_AddStringToObject(it, k, have ? now.title : name);
         else if (!strcmp(k, "channel")) cJSON_AddStringToObject(it, k, name);
         else if (!strcmp(k, "channelnumber")) cJSON_AddNumberToObject(it, k, num);
-        else if (!strcmp(k, "channeltype")) cJSON_AddStringToObject(it, k, "tv");
+        else if (!strcmp(k, "channeltype")) cJSON_AddStringToObject(it, k, tvsrc_channel_radio(num) ? "radio" : "tv");
         else if (!strcmp(k, "plot") || !strcmp(k, "description")) cJSON_AddStringToObject(it, k, plot);
         else if (!strcmp(k, "runtime"))
             cJSON_AddNumberToObject(it, k, have && now.stop > now.start ? (double) ((now.stop - now.start) / 60) : 0);
@@ -1749,7 +1750,7 @@ static cJSON *item_ref(int what, int ch, uint32_t rec) {
     } else {
         cJSON_AddStringToObject(it, "type", "channel");
         cJSON_AddNumberToObject(it, "id", ch);
-        cJSON_AddStringToObject(it, "channeltype", "tv");
+        cJSON_AddStringToObject(it, "channeltype", tvsrc_channel_radio(ch) ? "radio" : "tv");
     }
     return it;
 }

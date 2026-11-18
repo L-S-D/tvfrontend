@@ -171,6 +171,7 @@ struct player {
     feed_state state;
     int vpid, apid;
     es_codec vcodec, acodec;
+    int radio;           /* the PMT has no video stream: sound only (from the first audio PTS) */
     ts_pmt cur_pmt;      /* under lock: the session's PMT for the audio track list */
     int have_pmt, cur_apid;
     unsigned long htsp_chid;                             /* channel of the HTSP session of cur_pmt */
@@ -342,20 +343,22 @@ static int build_load_payload(player *b, char *out, size_t cap, int with_audio) 
     sbuf s = {out, cap, 0};
     const char *vname = video_name(b->vcodec);
     const char *aname = with_audio ? audio_name(b, b->acodec) : NULL;
-    if (!vname) return -1;
+    /* radio: sound only - no video codec, window or picture size */
+    if (b->radio ? !aname : !vname) return -1;
     double freq = b->ainfo.sample_rate / 1000.0;
 
     sb(&s, "{\"args\":[{\"mediaTransportType\":\"BUFFERSTREAM\",\"option\":{");
     sb(&s, "\"appId\":\"%s\"", b->app_id);
-    if (b->window_id[0]) sb(&s, ",\"windowId\":\"%s\"", b->window_id);
+    if (b->window_id[0] && !b->radio) sb(&s, ",\"windowId\":\"%s\"", b->window_id);
     sb(&s, ",\"needAudio\":%s", aname ? "true" : "false");
     sb(&s, ",\"queryPosition\":false,\"useDroppedFrameEvent\":true,\"seekMode\":\"keep-rate\"");
     if (strcmp(b->ctype, "none") != 0)
         sb(&s, ",\"transmission\":{\"contentsType\":\"%s\",\"trickType\":\"client-side\"}", b->ctype);
     if (b->lowdelay >= 0) sb(&s, ",\"lowDelayMode\":%s", b->lowdelay ? "true" : "false");
 
-    sb(&s, ",\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"%s\"", vname);
-    if (aname) sb(&s, ",\"audio\":\"%s\"", aname);
+    if (b->radio) sb(&s, ",\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"audio\":\"%s\"", aname);
+    else sb(&s, ",\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"%s\"", vname);
+    if (aname && !b->radio) sb(&s, ",\"audio\":\"%s\"", aname);
     sb(&s, "},\"esInfo\":{\"pauseAtDecodeTime\":%s,\"seperatedPTS\":true,\"ptsToDecode\":%lld",
        b->pad ? "true" : "false", (long long) b->ptd_ns);
     if (b->fps > 0) sb(&s, ",\"videoFpsValue\":%d,\"videoFpsScale\":1", b->fps);
@@ -380,9 +383,10 @@ static int build_load_payload(player *b, char *out, size_t cap, int with_audio) 
            "\"srcBufferLevelAudio\":{\"minimum\":%d,\"maximum\":%d}}",
        b->prebuf, b->vmin, b->vmax, b->amin, b->amax);
     sb(&s, "}"); /* externalStreamingInfo */
-    sb(&s, ",\"adaptiveStreaming\":{\"adaptiveResolution\":true,\"maxWidth\":%d,\"maxHeight\":%d,"
-           "\"maxFrameRate\":%d}",
-       b->maxw, b->maxh, b->maxfps);
+    if (!b->radio)
+        sb(&s, ",\"adaptiveStreaming\":{\"adaptiveResolution\":true,\"maxWidth\":%d,\"maxHeight\":%d,"
+               "\"maxFrameRate\":%d}",
+           b->maxw, b->maxh, b->maxfps);
     sb(&s, "}}]}");
     return s.len < cap ? 0 : -1;
 }
@@ -580,6 +584,11 @@ static void do_load(player *b) {
 
     int with_audio = b->apid >= 0 && b->have_ainfo && audio_name(b, b->acodec) != NULL;
     char payload[4096];
+    if (b->radio && !with_audio) {
+        mt_log("[player] radio: audio codec %s without a Starfish name - aborting", es_codec_name(b->acodec));
+        b->state = ST_DONE;
+        return;
+    }
     if (build_load_payload(b, payload, sizeof(payload), with_audio) != 0) {
         mt_log("[player] Load payload does not fit / codec without Starfish name");
         b->state = ST_DONE;
@@ -711,20 +720,27 @@ static void on_pmt(void *user, const ts_pmt *pmt) {
         if (vi >= 0 && pmt->es[vi].pid != b->vpid) mt_log("[ts] PMT change: new video PID - not handled");
         return;
     }
-    if (vi < 0) {
-        mt_log("[ts] no video stream - aborting");
+    int apid = (b->audio_enabled && ai >= 0 && best >= 0) ? pmt->es[ai].pid : -1;
+    if (vi < 0 && apid < 0) {
+        mt_log("[ts] neither a video nor an audio stream - aborting");
         b->state = ST_DONE;
         return;
     }
-    b->vpid = pmt->es[vi].pid;
-    b->vcodec = pmt->es[vi].codec;
-    b->apid = (b->audio_enabled && ai >= 0 && best >= 0) ? pmt->es[ai].pid : -1;
+    /* no video: radio, the session starts with the first audio PES */
+    b->radio = vi < 0;
+    b->vpid = vi >= 0 ? pmt->es[vi].pid : -1;
+    b->vcodec = vi >= 0 ? pmt->es[vi].codec : ES_NONE;
+    b->apid = apid;
     b->acodec = b->apid >= 0 ? pmt->es[ai].codec : ES_NONE;
     b->pcm_mode = (b->acodec == ES_MPA && !strcasecmp(b->mpa_name, "pcm"));
     b->maxw = b->cfg_maxw > 0 ? b->cfg_maxw : (b->vcodec == ES_HEVC ? 3840 : 1920);
     b->maxh = b->cfg_maxh > 0 ? b->cfg_maxh : (b->vcodec == ES_HEVC ? 2160 : 1080);
-    mt_log("[ts] selected: video PID %d (%s), audio PID %d (%s %s)", b->vpid, es_codec_name(b->vcodec), b->apid,
-           es_codec_name(b->acodec), b->apid >= 0 ? pmt->es[ai].lang : "");
+    if (b->radio)
+        mt_log("[ts] selected: no video (radio), audio PID %d (%s %s)", b->apid, es_codec_name(b->acodec),
+               pmt->es[ai].lang);
+    else
+        mt_log("[ts] selected: video PID %d (%s), audio PID %d (%s %s)", b->vpid, es_codec_name(b->vcodec), b->apid,
+               es_codec_name(b->acodec), b->apid >= 0 ? pmt->es[ai].lang : "");
     pthread_mutex_lock(&b->lock);
     b->cur_pmt = *pmt;
     b->have_pmt = 1;
@@ -732,6 +748,30 @@ static void on_pmt(void *user, const ts_pmt *pmt) {
     pthread_mutex_unlock(&b->lock);
     ts_select(&b->ts, b->vpid, b->apid);
     b->state = ST_WAIT_KEY;
+}
+
+/* radio: the first audio PES with a PTS and a header is the entry point (as
+ * the keyframe is with video); without a header for RADIO_AINFO_MS the
+ * session ends (the app tries again) */
+#define RADIO_AINFO_MS 3000
+static void radio_entry(player *b, const uint8_t *data, size_t len, int64_t pts) {
+    if (pts == TS_NO_PTS || !b->have_ainfo) {
+        b->a_drop_early++;
+        if (b->t_pmt && mt_now_ns() - b->t_pmt > RADIO_AINFO_MS * NS_PER_MS) {
+            mt_log("[player] radio: no audio header after %d ms - aborting", RADIO_AINFO_MS);
+            b->state = ST_DONE;
+        }
+        return;
+    }
+    b->t_key = mt_now_ns();
+    b->base90 = (pts - (int64_t) b->margin_ms * 90) & PTS_MASK;
+    b->ptd_ns = b->ptd0 ? 0 : (int64_t) b->margin_ms * NS_PER_MS;
+    b->key_pts_ns = rebase_ns(b, pts);
+    mt_log("[ts] entry (radio): %s audio after %.1f ms, %llu audio PES dropped before it, stream PTS %lld (%.3f s)",
+           es_codec_name(b->acodec), sms(b, b->t_key), (unsigned long long) b->a_drop_early, (long long) pts,
+           pts / 90000.0);
+    q_push(b, 0, data, len, pts);
+    do_load(b);
 }
 
 static void on_pes(void *user, int pid, const uint8_t *data, size_t len, int64_t pts, int64_t dts, int rai,
@@ -757,6 +797,11 @@ static void on_pes(void *user, int pid, const uint8_t *data, size_t len, int64_t
     if (b->state == ST_FEEDING) {
         if (video) feed_video(b, data, len, pts);
         else feed_audio(b, data, len, pts);
+        return;
+    }
+
+    if (b->state == ST_WAIT_KEY && b->radio) {
+        radio_entry(b, data, len, pts);
         return;
     }
 
@@ -1467,6 +1512,7 @@ static void reset_session(player *b) {
     b->mpa = NULL;
     b->pcm_mode = 0;
     b->vpid = b->apid = -1;
+    b->radio = 0;
     b->side_bits = 0;
     b->vcodec = b->acodec = ES_NONE;
     b->have_ainfo = 0;
@@ -1553,6 +1599,14 @@ static void unload_api(player *b, smp_api *api, cbctx *ctx, int loaded) {
 /* ------------------------------------------------------------------ */
 
 static void first_frame_summary(player *b) {
+    if (b->radio) {
+        mt_log("[player] *** FIRST SOUND after %.1f ms *** (HTTP %.1f, data %.1f, PMT %.1f, audio entry %.1f, "
+               "Load %.1f->%.1f, LOADCOMPLETED %.1f; entry PTS %.3fs)",
+               sms(b, b->t_first_frame), sms(b, b->t_http), sms(b, b->t_first_byte), sms(b, b->t_pmt),
+               sms(b, b->t_key), sms(b, b->t_load_call), sms(b, b->t_load_ret), sms(b, b->t_loadcompleted),
+               b->key_pts_ns / 1e9);
+        return;
+    }
     mt_log("[player] *** FIRST PICTURE after %.1f ms *** (HTTP %.1f, data %.1f, PMT %.1f, keyframe %.1f, "
            "Load %.1f->%.1f, LOADCOMPLETED %.1f, PLAYING %.1f; keyframe PTS %.3fs, picture PTS %.3fs)",
            sms(b, b->t_first_frame), sms(b, b->t_http), sms(b, b->t_first_byte), sms(b, b->t_pmt), sms(b, b->t_key),
@@ -1591,7 +1645,8 @@ static void event_cb(int type, int64_t num, const char *str, void *user) {
         b->last_frame_pts = num;
         b->last_frame_at = now;
         pthread_mutex_unlock(&b->lock);
-        if (b->frames == 1) {
+        /* radio: the first sound counts (PLAYING), not these */
+        if (b->frames == 1 && !b->radio) {
             b->t_first_frame = now;
             first_frame_summary(b);
         }
@@ -1608,9 +1663,13 @@ static void event_cb(int type, int64_t num, const char *str, void *user) {
     case SMP_EV_PLAYING:
         if (!b->t_playing) b->t_playing = now;
         b->media_playing = 1;
-        /* media URL: no FRAMEREADY events - PLAYING counts as the first frame */
-        if (b->media && !b->t_first_frame) b->t_first_frame = now;
         mt_log("[player] PLAYING after %.1f ms", sms(b, now));
+        /* PLAYING counts as the first frame: a media URL has no FRAMEREADY
+         * events, with radio they do not stand for a picture */
+        if ((b->media || b->radio) && !b->t_first_frame) {
+            b->t_first_frame = now;
+            if (b->radio) first_frame_summary(b);
+        }
         return;
     case SMP_EV_ENDOFSTREAM:
         b->eos_done = 1;
@@ -2258,8 +2317,9 @@ void player_status_get(player *b, player_status *st) {
      * resuming after a pause; not for radio, pause, media URLs */
     pthread_mutex_lock(&b->lock);
     int64_t ref = b->last_frame_at;
-    int radio = b->have_pmt && b->vpid < 0;
+    int radio = b->have_pmt && b->radio;
     pthread_mutex_unlock(&b->lock);
+    st->radio = radio;
     if (b->t_first_byte > ref) ref = b->t_first_byte;
     if (b->resumed_at > ref) ref = b->resumed_at;
     st->picture_age_ms = st->active && !b->paused && !b->media && !radio && ref

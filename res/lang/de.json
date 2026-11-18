@@ -15,6 +15,7 @@
   "%s is not responding – retrying in %d s": "%s antwortet nicht – neuer Versuch in %d s",
   "%s not available (HTTP %d) – retrying in %d s": "%s nicht verfügbar (HTTP %d) – neuer Versuch in %d s",
   "%s delivers no picture – retrying in %d s": "%s liefert kein Bild – neuer Versuch in %d s",
+  "%s delivers no sound – retrying in %d s": "%s liefert keinen Ton – neuer Versuch in %d s",
   "%s – retrying …": "%s – neuer Versuch …",
   "%s is not responding …": "%s antwortet nicht …",
   "%s: decryption failed – retrying in %d s": "%s: Entschlüsselung fehlgeschlagen – neuer Versuch in %d s",

@@ -90,9 +90,11 @@ int tvsrc_last(void);
  * ID and name (owned by tvsrc, valid until the next tvsrc_poll) */
 int tvsrc_groups(uint32_t *ids, const char **names, int max);
 int tvsrc_group_name(uint32_t tag, char *out, size_t n);
-/* channel numbers of the group (tag 0 = all), by number; returns the count
- * (also beyond max) */
-int tvsrc_channels(uint32_t tag, int *nums, int max);
+/* channel numbers of the group (tag 0 = all), by number, only radio channels
+ * (radio 1) or only the others (0); returns the count (also beyond max) */
+int tvsrc_channels_kind(uint32_t tag, int radio, int *nums, int max);
+/* the channel is a radio channel (all its services are radio services) */
+int tvsrc_channel_radio(int num);
 int tvsrc_channel_meta(int num, char *name, size_t nn, char *icon, size_t ni);
 /* known events of the channel, by start time */
 int tvsrc_events(int num, tvsrc_event *out, int max);

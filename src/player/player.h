@@ -31,6 +31,7 @@ typedef struct {
     int http_status;     /* server response, 0 = none (yet) */
     int http_wait_ms;    /* running session has been waiting this many ms for the response, 0 = not */
     int picture_age_ms;  /* ms without a new frame while the stream runs, -1 = not measurable (radio, pause) */
+    int radio;           /* the stream has no picture, only sound (its PMT is known) */
     int video_w, video_h;
     double video_fps; /* frame rate according to the decoder, 0 = unknown */
     int interlaced;
