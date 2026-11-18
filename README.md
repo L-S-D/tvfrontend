@@ -22,6 +22,10 @@ Live TV, programme guide, recordings, timeshift, teletext and HbbTV – with ver
 - **Radio**: channels without a picture play their sound and show logo, name, RadioText (RDS;
   DAB radio through tvheadend: the dynamic label) and programme on a dark screen that moves now
   and then (OLED).
+- **Screen protection** for OLED panels: over a still picture (radio, pause, an open menu or
+  teletext, no picture) the screen dims after 1 minute without a key and goes dark after 5, with
+  only a small moving clock; any key wakes it (that key does nothing else). Settings: 1 / 5 or
+  5 / 15 minutes or off.
 - **Programme guide** as a time grid or now/next list, with programme details.
 - **Timeshift**: pause, jump ±30 s, back to live (uses tvheadend's timeshift).
 - **Recordings**: schedule from the guide (also series), browse, resume where you stopped.
@@ -180,7 +184,7 @@ Wi-Fi/LAN*).
 
 ### Settings
 
-All settings are on the settings page (**hold green**): language, key layout, server address and
+All settings are on the settings page (**hold green**): language, key layout, screen protection, server address and
 login, HbbTV network access and the Kore options. Changed values show in yellow; they are applied
 with *Save and restart*.
 

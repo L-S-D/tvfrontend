@@ -5,7 +5,8 @@
  * Step: key name (UP DOWN LEFT RIGHT OK BACK RED GREEN YELLOW BLUE CH+ CH-),
  * "open", "osd", "settings", "shot" (write PNG), D0..D9 digits; "radio" shows
  * the radio screen (logo from $RADIO_LOGO, an http URL), "radio0" without a
- * logo and a programme, "radio1" also without them but with RadioText, "skip:<ms>" moves the clock ahead (the radio card moves
+ * logo and a programme, "radio1" also without them but with RadioText, "saver1"/"saver2" the screen protection,
+ * "skip:<ms>" moves the clock ahead (the radio card moves
  * every minute). */
 #include "choice.h"
 #include "epg.h"
@@ -17,6 +18,7 @@
 #include "log.h"
 #include "osd.h"
 #include "radio.h"
+#include "saver.h"
 #include "ui.h"
 #include "lodepng.h"
 
@@ -136,6 +138,7 @@ int main(int argc, char **argv) {
     info_init();
     settings_actions sta = {restart, current, find};
     settings_init(&sta);
+    saver_init();
 
     FILE *f = fopen(argv[2], "rb");
     fseek(f, 0, SEEK_END);
@@ -233,6 +236,8 @@ int main(int argc, char **argv) {
         } else if (!strcmp(s, "radio0")) { /* without a logo and a programme */
             radio_set(9901, "NRK P1 (DAB GSE)", "", NULL, NULL, NULL);
             radio_show(1);
+        } else if (!strcmp(s, "saver1") || !strcmp(s, "saver2")) { /* screen protection stage 1 / 2 */
+            saver_set(s[5] - '0');
         } else if (!strcmp(s, "radio2")) { /* RadioText, no logo, only the next programme */
             epg_entry nx;
             memset(&nx, 0, sizeof(nx));

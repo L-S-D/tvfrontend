@@ -65,6 +65,8 @@ static const char *const KB[6][10] = {
 static const char *lang_v[MAX_LANGS + 1], *lang_l[MAX_LANGS + 1];
 static const char *const EG_V[] = {"rules", "direct", "proxy"};
 static const char *const KL_V[] = {"classic", "hbbtv"};
+static const char *const SV_V[] = {"1", "5", "off"};
+static const char *const SV_L[] = {N_("1 / 5 minutes"), N_("5 / 15 minutes"), N_("off")};
 static const char *const KL_L[] = {N_("Standard"), N_("HbbTV first")};
 static const char *const EG_L[] = {N_("Rules per channel"), N_("Direct"), N_("Fixed proxy")};
 /* HbbTV device identification (User-Agent, main.c hbbtv_ua_device) */
@@ -128,6 +130,7 @@ static void build_items(void) {
     it = add_choice("ui.lang", N_("Language"), lang_v, lang_l, nl);
     if (it) it->native = 1;
     add_choice("keys.layout", N_("Key layout"), KL_V, KL_L, 2);
+    add_choice("ui.saver", N_("Screen protection (dim / dark)"), SV_V, SV_L, 3);
     add(T_HEADER, NULL, N_("TVheadend"));
     if (act.find) add(T_FIND, FIND_KEY, N_("Search for servers"));
     it = add(T_TEXT, "tvh.host", N_("Server address"));

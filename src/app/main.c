@@ -37,6 +37,7 @@
 #include "mdns.h"
 #include "osd.h"
 #include "radio.h"
+#include "saver.h"
 #include "player.h"
 #include "prefs.h"
 #include "recbrowser.h"
@@ -575,6 +576,61 @@ static void radio_update(void) {
     radio_tick();
 }
 
+/* ---------------- Screen protection (OLED) ---------------- */
+
+/* over a still picture after so long without a key: dimmed (stage 1), dark
+ * (stage 2); 0 = off (setting ui.saver: "1" = 1 / 5 min, "5" = 5 / 15 min) */
+static uint32_t saver_t1_ms, saver_t2_ms;
+static uint32_t saver_input_at;
+static int saver_swallow_sc = -1; /* the key that woke: its repeats and release go too */
+static int saver_swallow_up;      /* the pointer press that woke: its release goes too */
+
+/* a key, the pointer, Kore: the time since then counts; 1 = the screen was
+ * protected and is woken by it (a key that does only this) */
+static int saver_wake(void) {
+    saver_input_at = SDL_GetTicks();
+    if (!saver_stage()) return 0;
+    saver_set(0);
+    mt_log("[app] screen protection off");
+    return 1;
+}
+
+static int tvf_overlay(void);
+
+/* the picture stands still: radio, a paused picture, a TVF menu, no picture
+ * at all. Not with HbbTV (its own window, maybe a video) and not in the background */
+static int screen_still(void) {
+    if (app.background || hbbweb_active() || app.hbbtv_live_off) return 0;
+    if (radio_visible() || tvf_overlay() || player_paused(app.pl)) return 1;
+    if (!app.url[0]) return !recplay_active(); /* nothing playing */
+    player_status rs;
+    player_status_get(app.pl, &rs);
+    return !rs.radio && (!rs.first_frame || rs.ended); /* waiting, lost, retrying */
+}
+
+static void saver_update(void) {
+    if (!saver_t1_ms) return;
+    uint32_t idle = SDL_GetTicks() - saver_input_at;
+    int stage = !screen_still() ? 0 : idle >= saver_t2_ms ? 2 : idle >= saver_t1_ms ? 1 : 0;
+    if (stage != saver_stage()) {
+        saver_set(stage);
+        if (stage) mt_log("[app] screen protection stage %d (%u s without a key)", stage, idle / 1000);
+    }
+    saver_tick();
+}
+
+/* a key while the screen is protected: only wakes it; 1 = swallowed */
+static int saver_swallow(const SDL_KeyboardEvent *k, int down) {
+    int sc = (int) k->keysym.scancode;
+    if (sc == saver_swallow_sc) {
+        if (!down) saver_swallow_sc = -1;
+        return 1;
+    }
+    if (!down || !saver_wake()) return 0;
+    saver_swallow_sc = sc;
+    return 1;
+}
+
 /* ---------------- Reception (tvh, banner below the logo) ---------------- */
 
 static void num_de(char *out, size_t n, double v) {
@@ -728,6 +784,7 @@ static void on_play(const tvsrc_play_info *p) {
     int initial = p->initial;
     const epg_entry *now = &p->now, *next = &p->next;
     mt_log("[app] play %d \"%s\" %s%s", ch, name, url, initial ? " (initial)" : "");
+    if (!initial) saver_wake();
 
     player_status st;
     player_status_get(app.pl, &st);
@@ -1282,6 +1339,14 @@ static void hbb_closed(void) {
  * (like LG's own live TV) */
 /* pointer to the topmost open view */
 static void on_pointer(int ev, int x, int y) {
+    if (ev == PTR_UP && saver_swallow_up) {
+        saver_swallow_up = 0; /* the press woke the screen */
+        return;
+    }
+    if (saver_wake()) {
+        saver_swallow_up = ev == PTR_DOWN;
+        return;
+    }
     if (subs_adjusting() || aoff_adjusting || ttx_visible()) return;
     if (settings_visible()) settings_pointer(ev, x, y);
     else if (choice_visible()) choice_pointer(ev, x, y);
@@ -1314,6 +1379,7 @@ static void pointer_visible(int vis) {
 }
 
 static void on_wheel(int dir) {
+    if (saver_wake()) return;
     int key = dir > 0 ? KEY_UP : KEY_DOWN;
     if (aoff_adjusting) aoff_key(dir > 0 ? KEY_RIGHT : KEY_LEFT); /* offsets: up = later */
     else if (subs_adjusting()) subs_adjust_key(dir > 0 ? KEY_RIGHT : KEY_LEFT);
@@ -1370,6 +1436,7 @@ static void cfg_get(const char *key, char *out, size_t n) {
     else if (!strcmp(key, "hbbtv.egress")) snprintf(out, n, "rules");
     else if (!strcmp(key, "hbbtv.ua")) snprintf(out, n, "auto");
     else if (!strcmp(key, "keys.layout")) snprintf(out, n, "classic");
+    else if (!strcmp(key, "ui.saver")) snprintf(out, n, "1");
     else if (!strcmp(key, "ui.lang")) snprintf(out, n, "auto");
     else if (!strcmp(key, "kore.name")) snprintf(out, n, "TVF");
     else if (!strcmp(key, "kore.http_port")) snprintf(out, n, "8080");
@@ -1512,6 +1579,9 @@ static void color_hold_tick(void) {
 static void on_sdl_key(const SDL_KeyboardEvent *k, int down) {
     int key = key_from_sdl(k);
     int kc = (int) k->keysym.sym;
+    /* the pointer appearing wakes the screen, but its notification goes on */
+    if (k->keysym.scancode == (SDL_Scancode) SDL_WEBOS_SCANCODE_CURSOR_SHOW && down) saver_wake();
+    else if (saver_swallow(k, down)) return;
     /* webOS decides Red itself: when held long no red key arrives, only
      * this code (and webOS shows the pointer) */
     if (k->keysym.scancode == (SDL_Scancode) SCANCODE_RED_LONG) {
@@ -1678,6 +1748,7 @@ static void on_debug(const char *c) {
                 else color_short(k);
             }
     } else if (!strncmp(c, "KEY ", 4)) {
+        if (saver_wake()) return; /* like the remote: only wakes */
         for (int k = 1; k <= KEY_FFWD; k++) {
             if (!strcmp(c + 4, key_name(k))) {
                 on_key(k);
@@ -1940,6 +2011,7 @@ static void kodi_stop(void) {
 }
 static void kodi_key(int key) {
     mt_log("[app] key %s (Kore)", key_name(key));
+    saver_wake(); /* from the phone: wakes and acts */
     on_key(key);
 }
 
@@ -2222,6 +2294,12 @@ int main(int argc, char *argv[]) {
         cfg_get("keys.layout", kl, sizeof(kl));
         g_keys_hbbtv = !strcmp(kl, "hbbtv");
         mt_log("[app] key layout %s", g_keys_hbbtv ? "HbbTV first" : "standard");
+        char sv[8];
+        cfg_get("ui.saver", sv, sizeof(sv));
+        int m = atoi(sv);
+        saver_t1_ms = m > 0 ? (uint32_t) m * 60000 : 0;
+        saver_t2_ms = m == 1 ? 5 * 60000 : (uint32_t) m * 3 * 60000;
+        mt_log("[app] screen protection %s", m > 0 ? sv : "off");
     }
 
     signal(SIGINT, on_signal);
@@ -2468,7 +2546,8 @@ int main(int argc, char *argv[]) {
     ttx_init(res, &ta);
     choice_init();
     static const settings_actions sta = {settings_restart, cfg_get, app_find};
-    settings_init(&sta); /* topmost */
+    settings_init(&sta);
+    saver_init(); /* topmost */
     if (!host[0]) { /* no server set: look for one in the network */
         g_find_first = 1;
         app_find();
@@ -2583,6 +2662,7 @@ int main(int argc, char *argv[]) {
         }
         reception_tick();
         radio_update();
+        saver_update();
         recplay_tick();
         info_tick();
         hbbweb_poll();

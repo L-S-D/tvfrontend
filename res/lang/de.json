@@ -229,5 +229,9 @@
   "Good": "Gut",
   "Weak": "Schwach",
   "Bad": "Schlecht",
-  "No signal": "Kein Signal"
+  "No signal": "Kein Signal",
+  "Screen protection – press any key": "Bildschutz – beliebige Taste drücken",
+  "Screen protection (dim / dark)": "Bildschutz (dimmen / dunkel)",
+  "1 / 5 minutes": "1 / 5 Minuten",
+  "5 / 15 minutes": "5 / 15 Minuten"
 }
