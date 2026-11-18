@@ -7,6 +7,7 @@
 #include "strbuf.h"
 #include "ttxdec.h"
 #include "pmtinfo.h"
+#include "rds.h"
 
 #include <ctype.h>
 #include <pthread.h>
@@ -49,6 +50,9 @@ static int g_ttx_initial; /* broadcaster's start page (hex), 0 = unknown */
  * {"org","app","control","type","name","url","carousel"} */
 #define AIT_SECTIONS 16
 static int g_ait_index = -1;
+/* RDS (tvh: type RDS): the stream and its RadioText (DAB: the dynamic label) */
+static int g_rds_index = -1;
+static char g_radiotext[256];
 static int g_ait_version = -1;
 static char *g_ait_sec[AIT_SECTIONS];
 
@@ -255,7 +259,7 @@ static void drop_dvb(void) {
 static void on_start(void *user, unsigned long channel, const player_side_stream *s, int n) {
     (void) user;
     pthread_mutex_lock(&g_lock);
-    int ttx_index = -1, ait_index = -1;
+    int ttx_index = -1, ait_index = -1, rds_index = -1;
     g_nttxsub = 0;
     g_ttx_initial = 0;
     int ntextsub = 0;
@@ -266,6 +270,7 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
             g_ttx_initial = s[i].ttx_initial;
         }
         if (s[i].ait && ait_index < 0) ait_index = s[i].index;
+        if (s[i].rds && rds_index < 0) rds_index = s[i].index;
         if (s[i].textsub && s[i].ttx_page && g_nttxsub < MAX_TTXSUB) {
             ttxsub *t = &g_ttxsub[g_nttxsub++];
             t->page = s[i].ttx_page;
@@ -275,6 +280,8 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
     }
     if (channel != g_channel || ait_index < 0) ait_clear(); /* same channel: tvh only sends new versions */
     g_ait_index = ait_index;
+    if (channel != g_channel || rds_index < 0) g_radiotext[0] = 0;
+    g_rds_index = rds_index;
     /* stream events: on the same channel (reconnect) the versions seen stay,
      * nothing fires twice */
     if (channel != g_channel) se_clear();
@@ -304,7 +311,7 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
     g_channel = channel;
     drop_dvb();
     for (int i = 0; i < n && g_ndvb < MAX_DVB; i++) {
-        if (s[i].teletext || s[i].ait || s[i].textsub || s[i].dsmcc) continue;
+        if (s[i].teletext || s[i].ait || s[i].textsub || s[i].dsmcc || s[i].rds) continue;
         dvbstream *d = &g_dvb[g_ndvb];
         d->index = s[i].index;
         snprintf(d->lang, sizeof(d->lang), "%s", s[i].lang);
@@ -337,6 +344,9 @@ static void on_data(void *user, int index, const uint8_t *d, size_t len, long lo
         ttxdec_feed(g_ttx, d, len, pts);
     } else if (index == g_ait_index) {
         ait_section(d, len); /* followed by an htsmsg with the same apps: discarded */
+    } else if (index == g_rds_index) {
+        char t[sizeof(g_radiotext)];
+        if (rds_uecp_radiotext(d, len, t, sizeof(t))) snprintf(g_radiotext, sizeof(g_radiotext), "%s", t);
     } else {
         for (int i = 0; i < g_ndsmcc; i++)
             if (g_dsmcc[i].index == index) {
@@ -372,8 +382,17 @@ void sidedata_reset(void) {
     drop_dvb();
     ait_clear();
     g_ait_index = -1;
+    g_rds_index = -1;
+    g_radiotext[0] = 0;
     se_clear();
     pthread_mutex_unlock(&g_lock);
+}
+
+int sidedata_radiotext(char *out, size_t n) {
+    pthread_mutex_lock(&g_lock);
+    snprintf(out, n, "%s", g_radiotext);
+    pthread_mutex_unlock(&g_lock);
+    return out[0] != 0;
 }
 
 int sidedata_has_teletext(void) {

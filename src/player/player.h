@@ -185,6 +185,7 @@ typedef struct {
                    * stream descriptor sections) */
     int component_tag; /* -1 = unknown (tvh without the component tags) */
     int textsub;  /* 1 teletext subtitle page (tvh: TEXTSUB, no packets needed) */
+    int rds;      /* 1 RDS (tvh: type RDS, packets = UECP frames) */
     char lang[4];
     int composition, ancillary; /* DVB subtitles: pages */
     /* tvh with the HTSP extensions, otherwise 0: */

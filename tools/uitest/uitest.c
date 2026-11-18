@@ -5,7 +5,7 @@
  * Step: key name (UP DOWN LEFT RIGHT OK BACK RED GREEN YELLOW BLUE CH+ CH-),
  * "open", "osd", "settings", "shot" (write PNG), D0..D9 digits; "radio" shows
  * the radio screen (logo from $RADIO_LOGO, an http URL), "radio0" without a
- * logo and a programme, "skip:<ms>" moves the clock ahead (the radio card moves
+ * logo and a programme, "radio1" also without them but with RadioText, "skip:<ms>" moves the clock ahead (the radio card moves
  * every minute). */
 #include "choice.h"
 #include "epg.h"
@@ -231,7 +231,17 @@ int main(int argc, char **argv) {
             skew += (uint32_t) atoi(s + 5);
             pump(300);
         } else if (!strcmp(s, "radio0")) { /* without a logo and a programme */
-            radio_set(9901, "NRK P1 (DAB GSE)", "", NULL, NULL);
+            radio_set(9901, "NRK P1 (DAB GSE)", "", NULL, NULL, NULL);
+            radio_show(1);
+        } else if (!strcmp(s, "radio2")) { /* RadioText, no logo, only the next programme */
+            epg_entry nx;
+            memset(&nx, 0, sizeof(nx));
+            snprintf(nx.title, sizeof(nx.title), "Die junge Nacht der ARD");
+            nx.start = time(NULL) + 3600 * 8;
+            radio_set(9902, "1LIVE (DAB MPE)", "", "Coldplay - A Sky Full Of Stars", NULL, &nx);
+            radio_show(1);
+        } else if (!strcmp(s, "radio1")) { /* without a logo and a programme, with RadioText */
+            radio_set(9901, "NRK P1 (DAB GSE)", "", "Bastille - Pompeii", NULL, NULL);
             radio_show(1);
         } else if (!strcmp(s, "radio")) {
             epg_entry nw, nx;
@@ -244,7 +254,8 @@ int main(int argc, char **argv) {
             nx.start = nw.stop;
             nx.stop = nw.stop + 600;
             const char *lg = getenv("RADIO_LOGO");
-            radio_set(9001, "NRK P1 Stor-Oslo", lg ? lg : "", &nw, &nx);
+            radio_set(9001, "NRK P1 Stor-Oslo", lg ? lg : "",
+                      "Finn Hauge, Terje Gewelt, Olga Konkova, Frank Jakobsen - The Way", &nw, &nx);
             radio_show(1);
         } else if (!strcmp(s, "osd")) {
             osd_set_channel(210, "Sky Documentaries", "");

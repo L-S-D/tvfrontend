@@ -19,8 +19,9 @@ Live TV, programme guide, recordings, timeshift, teletext and HbbTV – with ver
 
 - **Live TV** with channel banner (now/next, logo, audio and video details), channel groups,
   digits, previous channel.
-- **Radio**: channels without a picture play their sound and show logo, name and programme on
-  a dark screen that moves now and then (OLED).
+- **Radio**: channels without a picture play their sound and show logo, name, RadioText (RDS;
+  DAB radio through tvheadend: the dynamic label) and programme on a dark screen that moves now
+  and then (OLED).
 - **Programme guide** as a time grid or now/next list, with programme details.
 - **Timeshift**: pause, jump ±30 s, back to live (uses tvheadend's timeshift).
 - **Recordings**: schedule from the guide (also series), browse, resume where you stopped.

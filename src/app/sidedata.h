@@ -39,6 +39,9 @@ int sidedata_has_teletext(void);
 
 /* version of the AIT the subscription has delivered, -1 = none yet */
 int sidedata_ait_version(void);
+/* the RadioText of the channel (RDS; DAB: its dynamic label) into out, UTF-8;
+ * 1 = there is one */
+int sidedata_radiotext(char *out, size_t n);
 
 /* teletext start page according to the PMT (hex, e.g. 0x100; tvh with
  * HTSP extension), 0 = unknown */

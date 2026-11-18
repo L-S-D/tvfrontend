@@ -8,19 +8,17 @@
 #include <time.h>
 
 #define RADIO_W 1040
-#define RADIO_H 500         /* with logo and programme */
-#define RADIO_LOGO_H 256    /* what the card is lower without a logo */
-#define RADIO_EPG_H 128     /* ... without a programme */
+#define RADIO_H 500         /* to start with; layout() makes it as high as its contents */
 #define RADIO_MARGIN 60
 #define RADIO_MOVE_MS 60000 /* the card moves this often */
 
 static lv_obj_t *bg, *card, *logo, *num, *name, *clock_l;
-static lv_obj_t *name_row, *now_row, *now_time, *now_title, *bar, *next_l;
+static lv_obj_t *name_row, *rt_l, *now_row, *now_time, *now_title, *bar, *next_l;
 static char logo_url[512];
 static char sig[2048];
 static epg_entry cur_now;
 static uint32_t moved_at, ticked_at, seed;
-static int have_logo, have_epg, centered;
+static int have_logo, have_rt, have_now, have_next, centered;
 
 static void layout(void);
 
@@ -60,13 +58,21 @@ void radio_init(void) {
     lv_obj_set_style_max_width(name, RADIO_W - 360, 0); /* clear of the clock */
     ui_label_dots(name);
 
-    now_row = row(card, 358);
-    now_time = ui_label(now_row, 30, 0, UI_DIM);
-    now_title = ui_label(now_row, 34, 1, UI_TEXT);
-    lv_obj_set_style_max_width(now_title, RADIO_W - 320, 0);
+    /* the RadioText (DAB: the dynamic label): what is on now, a song or the like */
+    rt_l = ui_label(card, 34, 1, UI_TEXT);
+    lv_obj_set_width(rt_l, RADIO_W - 120);
+    lv_obj_set_style_text_align(rt_l, LV_TEXT_ALIGN_CENTER, 0);
     /* too long: scroll back and forth instead of "..." (like the banner) */
+    lv_label_set_long_mode(rt_l, LV_LABEL_LONG_MODE_SCROLL);
+    lv_obj_set_height(rt_l, lv_font_get_line_height(ui_font(34, 1)));
+
+    /* the programme from the guide */
+    now_row = row(card, 358);
+    now_time = ui_label(now_row, 28, 0, UI_DIM);
+    now_title = ui_label(now_row, 30, 0, UI_TEXT);
+    lv_obj_set_style_max_width(now_title, RADIO_W - 320, 0);
     lv_label_set_long_mode(now_title, LV_LABEL_LONG_MODE_SCROLL);
-    lv_obj_set_height(now_title, lv_font_get_line_height(ui_font(34, 1)));
+    lv_obj_set_height(now_title, lv_font_get_line_height(ui_font(30, 0)));
 
     bar = lv_bar_create(card);
     lv_obj_set_size(bar, RADIO_W - 180, 8);
@@ -89,22 +95,38 @@ void radio_init(void) {
     seed = lv_tick_get() | 1;
 }
 
-/* the card as high as what it shows: without a logo the rest moves up,
- * without a programme its rows go */
+/* the card as high as what it shows: the logo, the name, the RadioText and the
+ * programme, each when there is one */
 static void layout(void) {
-    int dy = have_logo ? 0 : RADIO_LOGO_H;
-    lv_obj_align(name_row, LV_ALIGN_TOP_MID, 0, 286 - dy);
-    lv_obj_align(now_row, LV_ALIGN_TOP_MID, 0, 358 - dy);
-    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 418 - dy);
-    lv_obj_align(next_l, LV_ALIGN_TOP_MID, 0, 440 - dy);
-    if (have_epg) {
+    int32_t y = have_logo ? 286 : 30;
+    lv_obj_align(name_row, LV_ALIGN_TOP_MID, 0, y);
+    int32_t bottom = y + 56;
+    y += 72;
+    if (have_rt) {
+        lv_obj_align(rt_l, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_remove_flag(rt_l, LV_OBJ_FLAG_HIDDEN);
+        bottom = y + 42;
+        y += 60;
+    } else {
+        lv_obj_add_flag(rt_l, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (have_now) {
+        lv_obj_align(now_row, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, y + 54);
         lv_obj_remove_flag(now_row, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(next_l, LV_OBJ_FLAG_HIDDEN);
+        bottom = y + 62;
+        y += 76;
     } else {
         lv_obj_add_flag(now_row, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (have_next) {
+        lv_obj_align(next_l, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_remove_flag(next_l, LV_OBJ_FLAG_HIDDEN);
+        bottom = y + 36;
+    } else {
         lv_obj_add_flag(next_l, LV_OBJ_FLAG_HIDDEN);
     }
-    int32_t h = RADIO_H - dy - (have_epg ? 0 : RADIO_EPG_H);
+    int32_t h = bottom + 28;
     lv_obj_set_height(card, h);
     if (centered) {
         lv_obj_center(card);
@@ -154,10 +176,12 @@ static void update_time(void) {
     }
 }
 
-void radio_set(int number, const char *nm, const char *icon_url, const epg_entry *now, const epg_entry *next) {
+void radio_set(int number, const char *nm, const char *icon_url, const char *text, const epg_entry *now,
+               const epg_entry *next) {
     char s[sizeof(sig)];
-    snprintf(s, sizeof(s), "%d|%s|%s|%ld|%s|%ld|%s", number, nm ? nm : "", icon_url ? icon_url : "",
-             now ? now->start : 0, now ? now->title : "", next ? next->start : 0, next ? next->title : "");
+    snprintf(s, sizeof(s), "%d|%s|%s|%s|%ld|%s|%ld|%s", number, nm ? nm : "", icon_url ? icon_url : "",
+             text ? text : "", now ? now->start : 0, now ? now->title : "", next ? next->start : 0,
+             next ? next->title : "");
     if (!strcmp(s, sig)) return;
     snprintf(sig, sizeof(sig), "%s", s);
 
@@ -169,6 +193,10 @@ void radio_set(int number, const char *nm, const char *icon_url, const epg_entry
         have_logo = 0;
         ui_image_fetch(logo_url, on_logo, NULL); /* from the cache: right away */
     }
+    char rt[256];
+    ui_oneline(rt, sizeof(rt), text ? text : "", sizeof(rt) - 1);
+    lv_label_set_text(rt_l, rt);
+    have_rt = rt[0] != 0;
     memset(&cur_now, 0, sizeof(cur_now));
     if (now) cur_now = *now;
     char r[32], t[256], l[320];
@@ -185,7 +213,8 @@ void radio_set(int number, const char *nm, const char *icon_url, const epg_entry
         snprintf(l, sizeof(l), "%s", t);
     }
     lv_label_set_text(next_l, l);
-    have_epg = (now && now->title[0]) || (next && next->title[0]);
+    have_now = now && now->title[0];
+    have_next = next && next->title[0];
     layout();
     update_time();
 }

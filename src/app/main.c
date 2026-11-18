@@ -567,7 +567,9 @@ static void radio_update(void) {
     if (on) {
         epg_entry now, next;
         osd_get_nownext(&now, &next);
-        radio_set(app.channel, app.chname, app.icon, &now, &next);
+        char rt[256];
+        sidedata_radiotext(rt, sizeof(rt));
+        radio_set(app.channel, app.chname, app.icon, rt, &now, &next);
     }
     radio_show(on);
     radio_tick();
