@@ -409,6 +409,29 @@ void osd_number(const char *digits) {
     lv_obj_remove_flag(numbox, LV_OBJ_FLAG_HIDDEN);
 }
 
+/* made when it is first needed; on a dark disc so that it shows on any picture */
+void osd_buffering(int on) {
+    static lv_obj_t *disc;
+    if (!disc) {
+        if (!on) return;
+        disc = ui_box(lv_screen_active(), 0x000000, 150, 60);
+        lv_obj_set_size(disc, 120, 120);
+        lv_obj_center(disc);
+        lv_obj_t *ring = lv_spinner_create(disc);
+        lv_obj_set_size(ring, 76, 76);
+        lv_obj_center(ring);
+        lv_spinner_set_anim_params(ring, 1100, 240);
+        lv_obj_set_style_arc_width(ring, 7, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(ring, 7, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(ring, lv_color_hex(UI_BAR_BG), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(ring, lv_color_hex(UI_BLUE), LV_PART_INDICATOR);
+        lv_obj_add_flag(disc, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (on == !lv_obj_has_flag(disc, LV_OBJ_FLAG_HIDDEN)) return;
+    if (on) lv_obj_remove_flag(disc, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(disc, LV_OBJ_FLAG_HIDDEN);
+}
+
 void osd_message(const char *text, int ms, int error) {
     if (!text || !*text) {
         lv_obj_add_flag(msgbox, LV_OBJ_FLAG_HIDDEN);

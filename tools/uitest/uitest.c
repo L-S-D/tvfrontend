@@ -229,6 +229,9 @@ int main(int argc, char **argv) {
             snprintf(r.ca_time, sizeof(r.ca_time), "35 ms");
             snprintf(r.ca_via, sizeof(r.ca_via), "Cache");
             osd_set_rx(&r);
+        } else if (!strcmp(s, "buffering")) { /* the sign that the picture waits for its buffer */
+            osd_buffering(1);
+            pump(400);
         } else if (!strcmp(s, "toast")) {
             osd_message("Englisch (Dolby Digital)", 3000, 0);
         } else if (!strncmp(s, "skip:", 5)) {

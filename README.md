@@ -27,9 +27,15 @@ Live TV, programme guide, recordings, timeshift, teletext and HbbTV – with ver
   the place of the logo: the cover of the title that plays, the programme that is on, news -
   whatever the station sends.
 - **Screen protection** for OLED panels: over a still picture (radio, pause, an open menu or
-  teletext, no picture) the screen dims after 1 minute without a key and goes dark after 5, with
-  only a small moving clock; any key wakes it (that key does nothing else). Settings: 1 / 5 or
-  5 / 15 minutes or off.
+  teletext, no picture) the screen dims after 1 minute without a key - everything stays where
+  it is, only darker - and after 5 minutes TVF switches the panel off; the sound goes on. Any
+  key wakes it (that key does nothing else). Both times can be set: dim after 1 to 5 minutes,
+  panel off after 1 to 15 minutes, each also off. While this protection is on, the TV's own
+  screensaver is declined.
+- **Uneven sources**: a radio station starts with a second of sound in reserve, so that sound a
+  server hands on in bursts plays without gaps; and when a live picture runs with next to nothing
+  in hand for a few seconds (an internet channel whose source delivers late), TVF holds it for a
+  moment and fills up again - one short halt instead of many small ones.
 - **Programme guide** as a time grid or now/next list, with programme details.
 - **Timeshift**: pause, jump ±30 s, back to live (uses tvheadend's timeshift).
 - **Recordings**: schedule from the guide (also series), browse, resume where you stopped.

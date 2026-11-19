@@ -61,4 +61,7 @@ void osd_message(const char *text, int ms, int error);
 int osd_message_is(const char *text);
 
 /* periodically: clock, progress, hiding */
+/* the sign that the picture waits for its buffer: a small turning ring in the middle */
+void osd_buffering(int on);
+
 void osd_tick(void);

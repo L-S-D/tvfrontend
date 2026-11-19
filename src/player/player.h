@@ -217,6 +217,8 @@ void player_test_drop_video(player *p, int seconds);
  * fail new requests fail (restart, 5 = give up) */
 void player_test_cut(player *p, int fail);
 int player_paused(player *p);
+/* the live picture is held for a moment to fill its buffer (see rebuffer_tick) */
+int player_rebuffering(player *p);
 
 /* Position of file playback in s (before the first frame: pos0), -1 for live */
 double player_position(player *p);

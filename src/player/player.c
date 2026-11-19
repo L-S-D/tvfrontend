@@ -172,6 +172,13 @@ struct player {
     int vpid, apid;
     es_codec vcodec, acodec;
     int radio;           /* the PMT has no video stream: sound only (from the first audio PTS) */
+    int radio_held;      /* radio: the entry is found, sound is collected for the reserve */
+    int64_t radio_pts0;  /* its PTS */
+    int radio_reserve_ms;
+    /* re-buffering of a live picture (main thread): see rebuffer_tick */
+    int rebuf_low_ms, rebuf_target_ms; /* settings; low 0 = off */
+    int rebuf;                         /* the pipeline is held to fill up */
+    int64_t rebuf_low_since, rebuf_at, rebuf_done_at;
     ts_pmt cur_pmt;      /* under lock: the session's PMT for the audio track list */
     int have_pmt, cur_apid;
     unsigned long htsp_chid;                             /* channel of the HTSP session of cur_pmt */
@@ -450,7 +457,7 @@ static int feed(player *b, const uint8_t *data, size_t len, int64_t pts_ns, int 
         b->full_retries++;
         if (b->stop) return -1;
         int64_t now = mt_now_ns();
-        if (!t_begin || b->paused) t_begin = now; /* paused: back pressure is intended */
+        if (!t_begin || b->paused || b->rebuf) t_begin = now; /* paused: back pressure is intended */
         if (now - t_begin > 5000 * NS_PER_MS) {
             mt_log("[player] feed stuck for 5 s (%s) - buffer dropped", reply);
             return -1;
@@ -752,9 +759,23 @@ static void on_pmt(void *user, const ts_pmt *pmt) {
 
 /* radio: the first audio PES with a PTS and a header is the entry point (as
  * the keyframe is with video); without a header for RADIO_AINFO_MS the
- * session ends (the app tries again) */
+ * session ends (the app tries again).
+ * The decoder starts only when a reserve of sound is there (radio_reserve_ms
+ * of it, or that long plus a second of waiting): a server may hand the sound
+ * on in bursts - DAB through tvheadend comes about every half second - and a
+ * decoder that started with the first of them runs dry between two. */
 #define RADIO_AINFO_MS 3000
 static void radio_entry(player *b, const uint8_t *data, size_t len, int64_t pts) {
+    if (b->radio_held) {
+        q_push(b, 0, data, len, pts);
+        int64_t have_ms = pts == TS_NO_PTS ? 0 : (((pts - b->radio_pts0) & PTS_MASK) / 90);
+        if (have_ms > 60000) have_ms = 0; /* a PTS before the entry */
+        double waited_ms = (mt_now_ns() - b->t_key) / 1e6;
+        if (have_ms < b->radio_reserve_ms && waited_ms < b->radio_reserve_ms + 1000) return;
+        mt_log("[player] radio: %lld ms of sound after %.0f ms - starting", (long long) have_ms, waited_ms);
+        do_load(b);
+        return;
+    }
     if (pts == TS_NO_PTS || !b->have_ainfo) {
         b->a_drop_early++;
         if (b->t_pmt && mt_now_ns() - b->t_pmt > RADIO_AINFO_MS * NS_PER_MS) {
@@ -771,6 +792,11 @@ static void radio_entry(player *b, const uint8_t *data, size_t len, int64_t pts)
            es_codec_name(b->acodec), sms(b, b->t_key), (unsigned long long) b->a_drop_early, (long long) pts,
            pts / 90000.0);
     q_push(b, 0, data, len, pts);
+    if (b->radio_reserve_ms > 0) {
+        b->radio_held = 1;
+        b->radio_pts0 = pts;
+        return;
+    }
     do_load(b);
 }
 
@@ -1515,6 +1541,7 @@ static void reset_session(player *b) {
     b->pcm_mode = 0;
     b->vpid = b->apid = -1;
     b->radio = 0;
+    b->radio_held = 0;
     b->side_bits = 0;
     b->vcodec = b->acodec = ES_NONE;
     b->have_ainfo = 0;
@@ -1531,6 +1558,8 @@ static void reset_session(player *b) {
     b->bad_logged = 0;
     b->last_frame_pts = b->last_frame_at = 0;
     b->resumed_at = 0;
+    b->rebuf = 0;
+    b->rebuf_low_since = b->rebuf_at = b->rebuf_done_at = 0;
     b->last_stats_bytes = b->last_stats_frames = 0;
     b->loaded = b->load_completed = b->play_issued = b->unload_completed = 0;
     b->vod_have_ref = 0;
@@ -1767,6 +1796,10 @@ player *player_create(const char *p) {
     b->amax = jint(p, "amax", 2 * 1024 * 1024);
     b->amin = jint(p, "amin", 0);
     b->prebuf = jint(p, "prebuf", 0);
+    b->radio_reserve_ms = jint(p, "radiobuf", 1000);
+    b->rebuf_low_ms = jint(p, "rebuf", 300);
+    b->rebuf_target_ms = jint(p, "rebuftarget", 1500);
+    if (b->rebuf_target_ms < b->rebuf_low_ms + 200) b->rebuf_target_ms = b->rebuf_low_ms + 200;
     b->audio_enabled = jint(p, "audio", 1);
     b->force_apid = jint(p, "apid", 0);
     jstr(p, "alang", b->alang, sizeof(b->alang), "");
@@ -1795,9 +1828,9 @@ player *player_create(const char *p) {
             (SDL_bool (*)(const char *, SDL_Rect *, SDL_Rect *)) dlsym(self, "SDL_webOSSetExportedWindow");
     reset_session(b);
     mt_log("[player] settings: ctype=%s lowdelay=%d audiosync=%d pad=%d margin=%dms ptd0=%d vbuf=%d..%d "
-           "abuf=%d..%d prebuf=%d audio=%d mpa=%s keymode=%d maxfps=%d fps=%d appId=%s",
+           "abuf=%d..%d prebuf=%d radiobuf=%dms rebuf=%d..%dms audio=%d mpa=%s keymode=%d maxfps=%d fps=%d appId=%s",
            b->ctype, b->lowdelay, b->audiosync, b->pad, b->margin_ms, b->ptd0, b->vmin, b->vmax, b->amin, b->amax,
-           b->prebuf, b->audio_enabled, b->mpa_name, b->keymode, b->maxfps, b->fps, b->app_id);
+           b->prebuf, b->radio_reserve_ms, b->rebuf_low_ms, b->rebuf_target_ms, b->audio_enabled, b->mpa_name, b->keymode, b->maxfps, b->fps, b->app_id);
     return b;
 }
 
@@ -1989,6 +2022,8 @@ void player_test_drop_video(player *b, int seconds) {
 void player_set_paused(player *b, int paused) {
     smp_api *api = api_get(b, 1, -1);
     b->paused = paused;
+    b->rebuf = 0; /* the user's pause takes over a hold to fill up */
+    b->rebuf_low_since = 0;
     if (!paused) b->resumed_at = mt_now_ns();
     if (!api) return;
     int ok = paused ? smp_api_pause(api) : smp_api_play(api);
@@ -1997,6 +2032,8 @@ void player_set_paused(player *b, int paused) {
 }
 
 int player_paused(player *b) { return b->paused; }
+
+int player_rebuffering(player *b) { return b->rebuf; }
 
 void player_set_htsp_timeshift(player *b, int seconds) { b->htsp_ts_want = seconds > 0 ? seconds : 0; }
 
@@ -2324,7 +2361,7 @@ void player_status_get(player *b, player_status *st) {
     st->radio = radio;
     if (b->t_first_byte > ref) ref = b->t_first_byte;
     if (b->resumed_at > ref) ref = b->resumed_at;
-    st->picture_age_ms = st->active && !b->paused && !b->media && !radio && ref
+    st->picture_age_ms = st->active && !b->paused && !b->rebuf && !b->media && !radio && ref
                              ? (int) ((mt_now_ns() - ref) / NS_PER_MS)
                              : -1;
     snprintf(st->vcodec, sizeof(st->vcodec), "%s", es_codec_name(b->vcodec));
@@ -2332,8 +2369,70 @@ void player_status_get(player *b, player_status *st) {
     st->audio_channels = b->have_ainfo ? b->ainfo.channels : 0;
 }
 
+/* Re-buffering of a live picture. A source that hands its stream on late or in
+ * bursts (IPTV from the internet) uses up what the decoder has ahead, and
+ * nothing fills it again: the picture then runs with a few frames in hand
+ * and every delay shows. When what is fed is less than rebuf_low_ms ahead of
+ * what is shown for REBUF_AFTER_MS, the pipeline is held until rebuf_target_ms
+ * are there (REBUF_MAX_MS at most) - one short halt instead of many small
+ * ones. Not for radio (no frames to measure by; it starts with a reserve),
+ * recordings, media URLs or a paused picture. */
+#define REBUF_AFTER_MS 3000
+#define REBUF_MAX_MS 4000
+#define REBUF_GAP_MS 20000   /* not again sooner than this after one */
+#define REBUF_START_MS 5000  /* not in the first seconds of a session */
+
+static void rebuffer_hold(player *b, int hold) {
+    smp_api *api = api_get(b, 1, -1);
+    if (!api) return;
+    int ok = hold ? smp_api_pause(api) : smp_api_play(api);
+    api_put(b, api);
+    if (!ok) mt_log("[player] re-buffering: %s FAILED", hold ? "Pause()" : "Play()");
+}
+
+static void rebuffer_tick(player *b, int64_t now) {
+    if (b->rebuf_low_ms <= 0) return;
+    pthread_mutex_lock(&b->lock);
+    int64_t shown = b->last_frame_pts;
+    int radio = b->have_pmt && b->radio;
+    pthread_mutex_unlock(&b->lock);
+    int live = b->thread_running && b->state == ST_FEEDING && !b->vod && !b->media && !radio && !b->paused &&
+               !b->feeder_eof && b->t_first_frame && shown && b->last_fed_vpts_ns;
+    if (!live) {
+        b->rebuf_low_since = 0;
+        if (b->rebuf && !b->paused && b->thread_running && b->state == ST_FEEDING) rebuffer_hold(b, 0);
+        b->rebuf = 0;
+        return;
+    }
+    double lead = (b->last_fed_vpts_ns - shown) / 1e6;
+    if (b->rebuf) {
+        double held = (now - b->rebuf_at) / 1e6;
+        if (lead < b->rebuf_target_ms && held < REBUF_MAX_MS) return;
+        rebuffer_hold(b, 0);
+        b->rebuf = 0;
+        b->rebuf_done_at = b->resumed_at = now;
+        mt_log("[player] re-buffered: %.0f ms ahead after %.0f ms", lead, held);
+        return;
+    }
+    if (lead >= b->rebuf_low_ms) {
+        b->rebuf_low_since = 0;
+        return;
+    }
+    if (!b->rebuf_low_since) b->rebuf_low_since = now;
+    if (now - b->rebuf_low_since < (int64_t) REBUF_AFTER_MS * NS_PER_MS ||
+        now - b->t_first_frame < (int64_t) REBUF_START_MS * NS_PER_MS ||
+        (b->rebuf_done_at && now - b->rebuf_done_at < (int64_t) REBUF_GAP_MS * NS_PER_MS))
+        return;
+    mt_log("[player] only %.0f ms ahead for %d s - re-buffering", lead, REBUF_AFTER_MS / 1000);
+    rebuffer_hold(b, 1);
+    b->rebuf = 1;
+    b->rebuf_at = now;
+    b->rebuf_low_since = 0;
+}
+
 void player_tick(player *b) {
     int64_t now = mt_now_ns();
+    rebuffer_tick(b, now);
 
     pthread_mutex_lock(&b->lock);
     int geo = b->geo_pending, vw = b->src_w > 0 ? b->src_w : b->video_w, vh = b->src_w > 0 ? b->src_h : b->video_h;

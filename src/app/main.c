@@ -2709,6 +2709,7 @@ int main(int argc, char *argv[]) {
             tvsrc_refresh_now_next();
         }
         player_tick(app.pl);
+        osd_buffering(!app.background && player_rebuffering(app.pl));
         /* live stream broken off (tvh restart, network): reconnect, with
          * growing intervals; when time-shifted, back to live */
         /* (not while HbbTV media are playing instead of live: they have the decoder) */
