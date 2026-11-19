@@ -65,8 +65,12 @@ static const char *const KB[6][10] = {
 static const char *lang_v[MAX_LANGS + 1], *lang_l[MAX_LANGS + 1];
 static const char *const EG_V[] = {"rules", "direct", "proxy"};
 static const char *const KL_V[] = {"classic", "hbbtv"};
-static const char *const SV_V[] = {"1", "5", "off"};
-static const char *const SV_L[] = {N_("1 / 5 minutes"), N_("5 / 15 minutes"), N_("off")};
+/* screen protection: minutes, "off" first (only that label is translated) */
+static const char *const SD_V[] = {"off", "1", "2", "3", "4", "5"};
+static const char *const SD_L[] = {N_("off"), "1 min", "2 min", "3 min", "4 min", "5 min"};
+static const char *const SK_V[] = {"off", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"};
+static const char *const SK_L[] = {N_("off"), "1 min",  "2 min",  "3 min",  "4 min",  "5 min",  "6 min",  "7 min",
+                                   "8 min",   "9 min",  "10 min", "11 min", "12 min", "13 min", "14 min", "15 min"};
 static const char *const KL_L[] = {N_("Standard"), N_("HbbTV first")};
 static const char *const EG_L[] = {N_("Rules per channel"), N_("Direct"), N_("Fixed proxy")};
 /* HbbTV device identification (User-Agent, main.c hbbtv_ua_device) */
@@ -130,7 +134,10 @@ static void build_items(void) {
     it = add_choice("ui.lang", N_("Language"), lang_v, lang_l, nl);
     if (it) it->native = 1;
     add_choice("keys.layout", N_("Key layout"), KL_V, KL_L, 2);
-    add_choice("ui.saver", N_("Screen protection (dim / dark)"), SV_V, SV_L, 3);
+    it = add_choice("ui.saver_dim", N_("Screen protection: dim after"), SD_V, SD_L, 6);
+    if (it) it->native = 1;
+    it = add_choice("ui.saver_dark", N_("Screen protection: panel off after"), SK_V, SK_L, 16);
+    if (it) it->native = 1;
     add(T_HEADER, NULL, N_("TVheadend"));
     if (act.find) add(T_FIND, FIND_KEY, N_("Search for servers"));
     it = add(T_TEXT, "tvh.host", N_("Server address"));

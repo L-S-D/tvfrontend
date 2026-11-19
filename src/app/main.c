@@ -594,8 +594,10 @@ static void radio_update(void) {
 
 /* ---------------- Screen protection (OLED) ---------------- */
 
-/* over a still picture after so long without a key: dimmed (stage 1), dark
- * (stage 2); 0 = off (setting ui.saver: "1" = 1 / 5 min, "5" = 5 / 15 min) */
+/* over a still picture after so long without a key: dimmed (stage 1), the
+ * panel off (stage 2); 0 = that stage is off (settings ui.saver_dim 1-5 min,
+ * default 1, and ui.saver_dark 1-15 min, default 5). The second before the
+ * first leaves the first out. */
 static uint32_t saver_t1_ms, saver_t2_ms;
 static uint32_t saver_input_at;
 static int saver_swallow_sc = -1; /* the key that woke: its repeats and release go too */
@@ -603,10 +605,13 @@ static int saver_swallow_up;      /* the pointer press that woke: its release go
 
 /* a key, the pointer, Kore: the time since then counts; 1 = the screen was
  * protected and is woken by it (a key that does only this) */
+static void panel_set(int on);
+
 static int saver_wake(void) {
     saver_input_at = SDL_GetTicks();
     if (!saver_stage()) return 0;
     saver_set(0);
+    panel_set(1);
     mt_log("[app] screen protection off");
     return 1;
 }
@@ -624,12 +629,79 @@ static int screen_still(void) {
     return !rs.radio && (!rs.first_frame || rs.ended); /* waiting, lost, retrying */
 }
 
+/* Stage 2: the panel itself is switched off (the black layer stays below
+ * it, for a TV that does not let TVF do this). Two services, by
+ * the generation of the TV: tvpower (webOS 4) and the panel controller
+ * (webOS 25); the one a TV does not have or does not allow says so. The
+ * sound goes on, and a key still comes to TVF, which switches the panel on
+ * again (seen on webOS 26). */
+static int panel_off;
+static int panel_allowed = 1;   /* launch parameter "panel":0 leaves the panel alone (stage 2 only draws black) */
+static volatile int panel_woke; /* the TV switched it on again by itself (Luna thread) */
+
+/* the service this TV does not have or allow says so with every call: once in the log */
+static void on_panel_reply(const char *reply, void *user) {
+    static int said[2];
+    int *once = &said[!strcmp((const char *) user, "tvpower")];
+    cJSON *j = cJSON_Parse(reply ? reply : "");
+    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "returnValue")) && !__atomic_exchange_n(once, 1, __ATOMIC_RELAXED))
+        mt_log("[app] panel via %s: %s", (const char *) user, reply ? reply : "-");
+    cJSON_Delete(j);
+}
+
+static void panel_set(int on) {
+    if (!panel_allowed || panel_off == !on) return;
+    panel_off = !on;
+    panel_woke = 0;
+    mt_log("[app] panel %s", on ? "on" : "off");
+    luna_call(on ? "luna://com.webos.service.tvpower/power/turnOnScreen"
+                 : "luna://com.webos.service.tvpower/power/turnOffScreen",
+              "{}", on_panel_reply, "tvpower");
+    luna_call("luna://com.webos.service.panelcontroller/setScreenOnOff", on ? "{\"OnOff\":true}" : "{\"OnOff\":false}",
+              on_panel_reply, "panelcontroller");
+}
+
+/* The TV's own screensaver starts over a still picture too, a few minutes
+ * in. While TVF protects the screen itself and is in front, it is declined:
+ * it would cover the dimmed picture, and switch a panel TVF turned off on
+ * again. (Luna thread) */
+#define SCREENSAVER_CLIENT "com.lsd.tvf"
+
+static void on_screensaver_request(const char *reply, void *user) {
+    (void) user;
+    cJSON *j = cJSON_Parse(reply ? reply : "");
+    const cJSON *ts = cJSON_GetObjectItemCaseSensitive(j, "timestamp");
+    if (!strcmp(jstr(j, "state"), "Active") && ts) {
+        char *t = cJSON_PrintUnformatted(ts); /* as it came, a string or a number */
+        int decline = !app.background;
+        char p[256];
+        snprintf(p, sizeof(p), "{\"clientName\":\"" SCREENSAVER_CLIENT "\",\"ack\":%s,\"timestamp\":%s}",
+                 decline ? "false" : "true", t ? t : "0");
+        luna_call("luna://com.webos.service.tvpower/power/responseScreenSaverRequest", p, NULL, NULL);
+        mt_log("[app] TV screensaver %s", decline ? "declined" : "let through (TVF is in the background)");
+        free(t);
+    } else if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "returnValue"))) {
+        mt_log("[app] TV screensaver: no requests to TVF (%s)", reply ? reply : "-");
+    }
+    cJSON_Delete(j);
+}
+
 static void saver_update(void) {
-    if (!saver_t1_ms) return;
+    if (!saver_t1_ms && !saver_t2_ms) return;
+    if (panel_woke) { /* a key the TV kept for itself */
+        panel_woke = 0;
+        if (panel_off) {
+            panel_off = 0;
+            mt_log("[app] panel on (by the TV)");
+            saver_wake();
+        }
+    }
     uint32_t idle = SDL_GetTicks() - saver_input_at;
-    int stage = !screen_still() ? 0 : idle >= saver_t2_ms ? 2 : idle >= saver_t1_ms ? 1 : 0;
+    int stage = 0;
+    if (screen_still()) stage = saver_t2_ms && idle >= saver_t2_ms ? 2 : saver_t1_ms && idle >= saver_t1_ms ? 1 : 0;
     if (stage != saver_stage()) {
         saver_set(stage);
+        panel_set(stage != 2);
         if (stage) mt_log("[app] screen protection stage %d (%u s without a key)", stage, idle / 1000);
     }
     saver_tick();
@@ -1452,7 +1524,8 @@ static void cfg_get(const char *key, char *out, size_t n) {
     else if (!strcmp(key, "hbbtv.egress")) snprintf(out, n, "rules");
     else if (!strcmp(key, "hbbtv.ua")) snprintf(out, n, "auto");
     else if (!strcmp(key, "keys.layout")) snprintf(out, n, "classic");
-    else if (!strcmp(key, "ui.saver")) snprintf(out, n, "1");
+    else if (!strcmp(key, "ui.saver_dim")) snprintf(out, n, "1");
+    else if (!strcmp(key, "ui.saver_dark")) snprintf(out, n, "5");
     else if (!strcmp(key, "ui.lang")) snprintf(out, n, "auto");
     else if (!strcmp(key, "kore.name")) snprintf(out, n, "TVF");
     else if (!strcmp(key, "kore.http_port")) snprintf(out, n, "8080");
@@ -2052,6 +2125,7 @@ static void on_power_state(const char *reply, void *user) {
     if (st[0] && strcmp(st, g_tv.power)) {
         int on = !strcmp(st, "Active") && g_tv.power[0];
         mt_log("[app] TV power: %s%s", st, on ? " (switched on)" : "");
+        if (!strcmp(st, "Active") && !strcmp(g_tv.power, "Screen Off")) panel_woke = 1;
         if (on) {
             g_tv.on_at = time(NULL);
             g_tv.raised = 0;
@@ -2242,6 +2316,7 @@ int main(int argc, char *argv[]) {
     cJSON *params = cJSON_GetObjectItemCaseSensitive(launch, "parameters");
     if (!cJSON_IsObject(params)) params = launch;
     if (*jstr(params, "log")) mt_log_udp(jstr(params, "log"));
+    if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(params, "panel"))) panel_allowed = (int) jnum(params, "panel") > 0;
     int debug_port = atoi(jstr(params, "debug"));
     if (*jstr(params, "htspQueue")) htsp_set_queue_depth(atoi(jstr(params, "htspQueue"))); /* test: bytes, 0 = tvh default */
     if (!debug_port && cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(params, "debug")))
@@ -2311,11 +2386,15 @@ int main(int argc, char *argv[]) {
         g_keys_hbbtv = !strcmp(kl, "hbbtv");
         mt_log("[app] key layout %s", g_keys_hbbtv ? "HbbTV first" : "standard");
         char sv[8];
-        cfg_get("ui.saver", sv, sizeof(sv));
-        int m = atoi(sv);
-        saver_t1_ms = m > 0 ? (uint32_t) m * 60000 : 0;
-        saver_t2_ms = m == 1 ? 5 * 60000 : (uint32_t) m * 3 * 60000;
-        mt_log("[app] screen protection %s", m > 0 ? sv : "off");
+        cfg_get("ui.saver_dim", sv, sizeof(sv));
+        int dim = atoi(sv); /* "off" = 0 */
+        cfg_get("ui.saver_dark", sv, sizeof(sv));
+        int dark = atoi(sv);
+        dim = dim < 0 ? 0 : dim > 5 ? 5 : dim;
+        dark = dark < 0 ? 0 : dark > 15 ? 15 : dark;
+        saver_t1_ms = (uint32_t) dim * 60000;
+        saver_t2_ms = (uint32_t) dark * 60000;
+        mt_log("[app] screen protection: dim after %d min, panel off after %d min (0 = off)", dim, dark);
     }
 
     signal(SIGINT, on_signal);
@@ -2457,9 +2536,7 @@ int main(int argc, char *argv[]) {
                                         kodi_stop,    kodi_key,         kodi_request, kodi_front};
         if (kc.http_port > 0 || kc.tcp_port > 0) {
             if (kodi_start(&kc, &ka, fetch_wake) != 0) mt_log("[app] Kodi remote (Kore) could not start");
-            /* for kodi_request: watch power on/off and the foreground app */
-            luna_subscribe("luna://com.webos.service.tvpower/power/getPowerState", "{\"subscribe\":true}",
-                           on_power_state, NULL);
+            /* for kodi_request: watch the foreground app (and power on/off, below) */
             luna_subscribe("luna://com.webos.applicationManager/getForegroundAppInfo", "{\"subscribe\":true}",
                            on_foreground_app, NULL);
         }
@@ -2564,6 +2641,12 @@ int main(int argc, char *argv[]) {
     static const settings_actions sta = {settings_restart, cfg_get, app_find};
     settings_init(&sta);
     saver_init(); /* topmost */
+    /* power on/off: for kodi_request, and a TV that switches a panel TVF turned
+     * off on again by itself, keeping the key (webOS 4) */
+    luna_subscribe("luna://com.webos.service.tvpower/power/getPowerState", "{\"subscribe\":true}", on_power_state, NULL);
+    if (saver_t1_ms || saver_t2_ms)
+        luna_subscribe("luna://com.webos.service.tvpower/power/registerScreenSaverRequest",
+                       "{\"subscribe\":true,\"clientName\":\"" SCREENSAVER_CLIENT "\"}", on_screensaver_request, NULL);
     if (!host[0]) { /* no server set: look for one in the network */
         g_find_first = 1;
         app_find();
@@ -2727,6 +2810,7 @@ int main(int argc, char *argv[]) {
         subs_tick();
     }
 
+    panel_set(1);
     mt_log("[app] exit - releasing decoder");
     /* HbbTV media: the media server's pipeline outlives TVF (also on the restart
      * after the settings) - unload it and wait for the reply */

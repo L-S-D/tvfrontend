@@ -58,7 +58,7 @@ static void current(const char *key, char *out, size_t n) {
         {"tvh.host", "192.0.2.10"},    {"tvh.http_port", "9981"}, {"tvh.htsp_port", "9982"},
         {"tvh.user", "tvf"},           {"tvh.pass", "example-pass"},
         {"hbbtv.egress", "rules"},
-        {"ui.lang", "auto"},
+        {"ui.lang", "auto"},           {"ui.saver_dim", "1"},     {"ui.saver_dark", "5"}, {"ui.saver_black", "clock"},
         {"kore.name", "TVF"},
         {"kore.http_port", "8080"}, {"kore.tcp_port", "0"}};
     out[0] = 0;
