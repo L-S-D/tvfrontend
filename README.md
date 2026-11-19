@@ -22,6 +22,10 @@ Live TV, programme guide, recordings, timeshift, teletext and HbbTV – with ver
 - **Radio**: channels without a picture play their sound and show logo, name, RadioText (RDS;
   DAB radio through tvheadend: the dynamic label) and programme on a dark screen that moves now
   and then (OLED).
+  With DAB from a tvheadend that uses libdvbdab 2.7 or later, the dynamic label is shown whole (a
+  RadioText has 64 characters), and with a later one the slides of the station's slideshow take
+  the place of the logo: the cover of the title that plays, the programme that is on, news -
+  whatever the station sends.
 - **Screen protection** for OLED panels: over a still picture (radio, pause, an open menu or
   teletext, no picture) the screen dims after 1 minute without a key and goes dark after 5, with
   only a small moving clock; any key wakes it (that key does nothing else). Settings: 1 / 5 or

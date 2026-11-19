@@ -404,6 +404,12 @@ static void update_streams(void) {
     int w = st.video_w, h = st.video_h;
     const char *codec = NULL;
     if (st.vcodec[0] && strcmp(st.vcodec, "-")) codec = !strcmp(st.vcodec, "MPEG-2 Video") ? "MPEG-2" : st.vcodec;
+    /* radio: nothing about a picture (the size and rate of the channel before may still be there) */
+    if (st.radio) {
+        codec = NULL;
+        w = h = 0;
+        st.video_fps = 0;
+    }
     char v[128] = "";
     size_t o = 0;
 #define ADD(...)                                                                                                       \
@@ -571,6 +577,16 @@ static void radio_update(void) {
         char rt[256];
         sidedata_radiotext(rt, sizeof(rt));
         radio_set(app.channel, app.chname, app.icon, rt, &now, &next);
+        /* the slide of its slideshow, when it has one and that changed */
+        static unsigned slide;
+        uint8_t *img = NULL;
+        size_t len = 0;
+        unsigned serial = sidedata_slide(slide, &img, &len);
+        if (serial != slide) {
+            slide = serial;
+            radio_set_slide(serial, img, len);
+        }
+        free(img);
     }
     radio_show(on);
     radio_tick();

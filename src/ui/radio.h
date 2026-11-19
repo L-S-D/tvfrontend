@@ -9,6 +9,9 @@
 
 #include "osd.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 void radio_init(void);
 
 /* the channel, its RadioText (DAB: the dynamic label; NULL/"" = none) and its
@@ -16,6 +19,12 @@ void radio_init(void);
  * nothing */
 void radio_set(int number, const char *name, const char *icon_url, const char *text, const epg_entry *now,
                const epg_entry *next);
+
+/* The slide of the station's slideshow that is on (DAB: an image now and
+ * then - the cover of the title, the programme, news): the image file, JPEG
+ * or PNG, under a serial number that changes with the slide; 0 = none. It
+ * takes the place of the logo, larger. The same serial again does nothing. */
+void radio_set_slide(unsigned serial, const uint8_t *data, size_t len);
 
 /* show (1) or hide (0) the radio screen */
 void radio_show(int on);

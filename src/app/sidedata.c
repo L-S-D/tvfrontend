@@ -53,6 +53,20 @@ static int g_ait_index = -1;
 /* RDS (tvh: type RDS): the stream and its RadioText (DAB: the dynamic label) */
 static int g_rds_index = -1;
 static char g_radiotext[256];
+/* the slideshow of a DAB service: the pieces being collected, the slide that
+ * is on (the image file) and its serial number (0 = none) */
+static rds_slide g_slide_parts = {-1, -1, 0, 0, 0, NULL, NULL};
+static uint8_t *g_slide;
+static size_t g_slide_len;
+static unsigned g_slide_serial;
+
+static void slide_clear(void) {
+    rds_slide_free(&g_slide_parts);
+    free(g_slide);
+    g_slide = NULL;
+    g_slide_len = 0;
+    g_slide_serial = 0;
+}
 static int g_ait_version = -1;
 static char *g_ait_sec[AIT_SECTIONS];
 
@@ -280,7 +294,10 @@ static void on_start(void *user, unsigned long channel, const player_side_stream
     }
     if (channel != g_channel || ait_index < 0) ait_clear(); /* same channel: tvh only sends new versions */
     g_ait_index = ait_index;
-    if (channel != g_channel || rds_index < 0) g_radiotext[0] = 0;
+    if (channel != g_channel || rds_index < 0) {
+        g_radiotext[0] = 0;
+        slide_clear();
+    }
     g_rds_index = rds_index;
     /* stream events: on the same channel (reconnect) the versions seen stay,
      * nothing fires twice */
@@ -347,6 +364,20 @@ static void on_data(void *user, int index, const uint8_t *d, size_t len, long lo
     } else if (index == g_rds_index) {
         char t[sizeof(g_radiotext)];
         if (rds_uecp_radiotext(d, len, t, sizeof(t))) snprintf(g_radiotext, sizeof(g_radiotext), "%s", t);
+        const uint8_t *img;
+        size_t n;
+        if (rds_uecp_slide(&g_slide_parts, d, len, &img, &n)) {
+            uint8_t *copy = malloc(n);
+            if (copy) {
+                memcpy(copy, img, n);
+                free(g_slide);
+                g_slide = copy;
+                g_slide_len = n;
+                static unsigned serial;
+                if (++serial == 0) serial = 1;
+                g_slide_serial = serial;
+            }
+        }
     } else {
         for (int i = 0; i < g_ndsmcc; i++)
             if (g_dsmcc[i].index == index) {
@@ -384,6 +415,7 @@ void sidedata_reset(void) {
     g_ait_index = -1;
     g_rds_index = -1;
     g_radiotext[0] = 0;
+    slide_clear();
     se_clear();
     pthread_mutex_unlock(&g_lock);
 }
@@ -393,6 +425,19 @@ int sidedata_radiotext(char *out, size_t n) {
     snprintf(out, n, "%s", g_radiotext);
     pthread_mutex_unlock(&g_lock);
     return out[0] != 0;
+}
+
+unsigned sidedata_slide(unsigned have, uint8_t **data, size_t *len) {
+    pthread_mutex_lock(&g_lock);
+    unsigned serial = g_slide_serial;
+    *data = NULL;
+    *len = 0;
+    if (serial && serial != have && (*data = malloc(g_slide_len)) != NULL) {
+        memcpy(*data, g_slide, g_slide_len);
+        *len = g_slide_len;
+    }
+    pthread_mutex_unlock(&g_lock);
+    return serial;
 }
 
 int sidedata_has_teletext(void) {

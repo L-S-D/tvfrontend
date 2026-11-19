@@ -73,7 +73,16 @@ int img_trim_png(const uint8_t *in, size_t len, uint8_t **out, size_t *out_len) 
 int img_decode_jpeg(const uint8_t *in, size_t len, int max_w, int max_h, uint8_t **out, int *w, int *h) {
     *out = NULL;
     *w = *h = 0;
-    if (!in || len < 4 || len > 16u << 20 || in[0] != 0xFF || in[1] != 0xD8 || in[2] != 0xFF) return 0;
+    if (!in || len < 4 || in[0] != 0xFF || in[1] != 0xD8 || in[2] != 0xFF) return 0;
+    return img_decode(in, len, max_w, max_h, out, w, h);
+}
+
+int img_decode(const uint8_t *in, size_t len, int max_w, int max_h, uint8_t **out, int *w, int *h) {
+    static const uint8_t png[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    *out = NULL;
+    *w = *h = 0;
+    if (!in || len < 8 || len > 16u << 20) return 0;
+    if (!(in[0] == 0xFF && in[1] == 0xD8 && in[2] == 0xFF) && memcmp(in, png, 8) != 0) return 0;
     int iw = 0, ih = 0, n = 0;
     uint8_t *px = stbi_load_from_memory(in, (int) len, &iw, &ih, &n, 4);
     if (!px) return 0;
@@ -88,13 +97,14 @@ int img_decode_jpeg(const uint8_t *in, size_t len, int max_w, int max_h, uint8_t
     }
     for (int y = 0; y < oh; y++)
         for (int x = 0; x < ow; x++) {
-            unsigned r = 0, g = 0, b = 0;
+            unsigned r = 0, g = 0, b = 0, a = 0;
             for (int dy = 0; dy < f; dy++) {
                 const uint8_t *p = px + ((size_t) (y * f + dy) * (size_t) iw + (size_t) x * f) * 4;
                 for (int dx = 0; dx < f; dx++, p += 4) {
                     r += p[0];
                     g += p[1];
                     b += p[2];
+                    a += p[3];
                 }
             }
             unsigned d = (unsigned) (f * f);
@@ -102,7 +112,7 @@ int img_decode_jpeg(const uint8_t *in, size_t len, int max_w, int max_h, uint8_t
             q[0] = (uint8_t) (b / d); /* LVGL ARGB8888 in memory: B, G, R, A */
             q[1] = (uint8_t) (g / d);
             q[2] = (uint8_t) (r / d);
-            q[3] = 0xFF;
+            q[3] = (uint8_t) (a / d); /* (a JPEG has none: opaque) */
         }
     stbi_image_free(px);
     *out = o;

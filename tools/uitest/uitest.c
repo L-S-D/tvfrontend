@@ -4,8 +4,9 @@
  *   uitest <res> <grid.json> <out-prefix> [step ...]
  * Step: key name (UP DOWN LEFT RIGHT OK BACK RED GREEN YELLOW BLUE CH+ CH-),
  * "open", "osd", "settings", "shot" (write PNG), D0..D9 digits; "radio" shows
- * the radio screen (logo from $RADIO_LOGO, an http URL), "radio0" without a
+ * the radio screen (logo from $RADIO_LOGO, an http URL), "slide:<file>" a slide of the slideshow in it, "radio0" without a
  * logo and a programme, "radio1" also without them but with RadioText, "saver1"/"saver2" the screen protection,
+ * "radiolong1".."radiolong3" texts too long for a line,
  * "skip:<ms>" moves the clock ahead (the radio card moves
  * every minute). */
 #include "choice.h"
@@ -244,6 +245,46 @@ int main(int argc, char **argv) {
             snprintf(nx.title, sizeof(nx.title), "Die junge Nacht der ARD");
             nx.start = time(NULL) + 3600 * 8;
             radio_set(9902, "1LIVE (DAB MPE)", "", "Coldplay - A Sky Full Of Stars", NULL, &nx);
+            radio_show(1);
+        } else if (!strncmp(s, "slide:", 6)) { /* a slide of the slideshow from a file; "slide:" = none */
+            static unsigned serial;
+            uint8_t *img = NULL;
+            long n = 0;
+            FILE *sf = s[6] ? fopen(s + 6, "rb") : NULL;
+            if (sf) {
+                fseek(sf, 0, SEEK_END);
+                n = ftell(sf);
+                fseek(sf, 0, SEEK_SET);
+                img = malloc((size_t) n);
+                if (img && fread(img, 1, (size_t) n, sf) != (size_t) n) n = 0;
+                fclose(sf);
+            }
+            radio_set_slide(img && n > 0 ? ++serial : 0, img, (size_t) n);
+            free(img);
+        } else if (!strncmp(s, "radiolong", 9)) { /* texts too long for a line: 1 = two lines, 2 = the smaller font, 3 = dots */
+            static const char *const rt[] = {
+                "Sie hören: Die Deutschen Kammerphilharmonie Bremen unter Paavo Järvi mit Beethoven",
+                "Sie hören: Die Deutsche Kammerphilharmonie Bremen unter der Leitung von Paavo Järvi mit der Sinfonie Nr. 7 "
+                "A-Dur op. 92 von Ludwig van Beethoven",
+                "Sie hören: Die Deutsche Kammerphilharmonie Bremen unter der Leitung von Paavo Järvi mit der Sinfonie Nr. 7 "
+                "A-Dur op. 92 von Ludwig van Beethoven, aufgenommen im August 2006 in der Glocke in Bremen, danach die "
+                "Nachrichten und das Wetter für Norddeutschland"};
+            static const char *const ti[] = {
+                "Nitimen med Rune Thomassen og en veldig lang tittel som ikke ruller",
+                "Das Konzert am Abend: Aufnahmen aus den großen Sälen Europas, heute aus Bremen und aus Amsterdam",
+                "Das Konzert am Abend: Aufnahmen aus den großen Sälen Europas, heute aus Bremen, aus Amsterdam, aus Wien, "
+                "aus Prag und zum Schluss aus dem Konzerthaus in Berlin"};
+            int k = s[9] >= '1' && s[9] <= '3' ? s[9] - '1' : 0;
+            epg_entry nw, nx;
+            memset(&nw, 0, sizeof(nw));
+            memset(&nx, 0, sizeof(nx));
+            snprintf(nw.title, sizeof(nw.title), "%s", ti[k]);
+            nw.start = time(NULL) - 1500;
+            nw.stop = time(NULL) + 2100;
+            snprintf(nx.title, sizeof(nx.title), "Nachrichten");
+            nx.start = nw.stop;
+            nx.stop = nw.stop + 600;
+            radio_set(9935, "KLASSIK RADIO", "", rt[k], &nw, &nx);
             radio_show(1);
         } else if (!strcmp(s, "radio1")) { /* without a logo and a programme, with RadioText */
             radio_set(9901, "NRK P1 (DAB GSE)", "", "Bastille - Pompeii", NULL, NULL);

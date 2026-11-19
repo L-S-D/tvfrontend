@@ -43,6 +43,11 @@ int sidedata_ait_version(void);
  * 1 = there is one */
 int sidedata_radiotext(char *out, size_t n);
 
+/* The slide of the slideshow of the channel that is on (DAB, see rds.h): its
+ * serial number, 0 = none. When that is not `have`, the image file in *data
+ * (malloc, the caller frees it) and *len; else NULL. */
+unsigned sidedata_slide(unsigned have, uint8_t **data, size_t *len);
+
 /* teletext start page according to the PMT (hex, e.g. 0x100; tvh with
  * HTSP extension), 0 = unknown */
 int sidedata_ttx_initial_page(void);

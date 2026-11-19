@@ -17,3 +17,6 @@ int img_trim_png(const uint8_t *in, size_t len, uint8_t **out, size_t *out_len);
  * *out (malloc), scaled down by an integer factor to at most max_w x max_h.
  * 1 = ok, 0 = not a JPEG or not readable. */
 int img_decode_jpeg(const uint8_t *in, size_t len, int max_w, int max_h, uint8_t **out, int *w, int *h);
+
+/* The same for a JPEG or a PNG (with its transparency). 0 = neither, or not readable. */
+int img_decode(const uint8_t *in, size_t len, int max_w, int max_h, uint8_t **out, int *w, int *h);
