@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
- * Settings page (green long in live TV): the basic settings of TVF, stored in
+ * Settings page (red long in live TV): the basic settings of TVF, stored in
  * the preferences file. Choice items cycle with OK/Left/Right, text items open
  * an on-screen keyboard (digits also from the remote). "Save" writes the
  * changed values and asks the app to restart (most settings apply at start).

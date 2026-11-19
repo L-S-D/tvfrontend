@@ -22,7 +22,6 @@
   "%s: decryption failed – retrying …": "%s: Entschlüsselung fehlgeschlagen – neuer Versuch …",
   "%s: decryption failed": "%s: Entschlüsselung fehlgeschlagen",
   "No stream for this channel": "Kein Stream für diesen Kanal",
-  "No connection to the TVH server - hold green for settings": "Keine Verbindung zum TVH-Server – Grün halten für Einstellungen",
   "No connection to the TVH server - hold red for settings": "Keine Verbindung zum TVH-Server – Rot halten für Einstellungen",
   "No HbbTV for this channel": "Kein HbbTV für diesen Kanal",
   "No teletext for this channel": "Kein Teletext für diesen Kanal",

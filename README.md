@@ -165,8 +165,8 @@ Optional settings (default server, build options, HbbTV network rules) are descr
 | OK | Show the channel banner; **hold** for the programme info |
 | ↑ / ↓ or Back | Channel list and programme guide |
 | ← / → | Timeshift: 30 s back / forward (pauses live TV) |
-| Red | HbbTV |
-| Green | Recordings; **hold** for the settings |
+| Red | HbbTV; **hold** to close it, or (without HbbTV) for the settings |
+| Green | Recordings |
 | Yellow | Audio track, sound offset and subtitles |
 | Blue | Teletext |
 
@@ -188,7 +188,7 @@ Wi-Fi/LAN*).
 
 ### Settings
 
-All settings are on the settings page (**hold green**): language, key layout, screen protection, server address and
+All settings are on the settings page (**hold red**): language, key layout, screen protection, server address and
 login, HbbTV network access and the Kore options. Changed values show in yellow; they are applied
 with *Save and restart*.
 
@@ -196,7 +196,7 @@ with *Save and restart*.
 
 - **The app disappears from the TV**: the Developer Mode session ran out. Open the Developer Mode app
   and extend it, then install again if needed.
-- **No channels or a message that the server cannot be reached**: hold green and check address, ports
+- **No channels or a message that the server cannot be reached**: hold red and check address, ports
   and login; the TV and the server must be on the same network. *Search for servers* finds a
   tvheadend that announces itself via Avahi (in Docker only with host networking).
 - **Nothing happens after `ares-launch`**: the app is already running – close it first

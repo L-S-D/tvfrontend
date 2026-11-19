@@ -12,7 +12,7 @@
  * Keys: "log":"host:port" (UDP log), "debug":port (debug port),
  * player tuning knobs see player.c. The basic settings (tvh host,
  * credentials, extra services, language ...) live in the settings file and on
- * the settings page (Green long); launch parameters for them are remembered.
+ * the settings page (Red long); launch parameters for them are remembered.
  */
 #include "i18n.h"
 #include "cJSON.h"
@@ -143,8 +143,9 @@ static app_state app;
 static volatile sig_atomic_t g_quit;
 static int g_restart; /* settings saved: restart after cleaning up */
 /* key layout "HbbTV first" (keys.layout = hbbtv): the channel's HbbTV app
- * starts visibly, short colour keys belong to it, long ones to TVF; settings
- * with Red long when HbbTV is not visible. Otherwise "Standard" (classic) */
+ * starts visibly, short colour keys belong to it, long ones to TVF.
+ * Otherwise "Standard" (classic). The settings are Red long without a visible
+ * HbbTV in both. */
 static int g_keys_hbbtv;
 /* tvh server search (mDNS): running; started at the start because no server
  * is set (then the result decides); the settings opened once for the login */
@@ -948,9 +949,7 @@ static void app_schedule(cJSON *schedule) { recdlg_on_schedule(schedule); }
 static void app_connected(int up) {
     if (up) osd_message(NULL, 0, 0);
     else
-        osd_message(g_keys_hbbtv ? _("No connection to the TVH server - hold red for settings")
-                                 : _("No connection to the TVH server - hold green for settings"),
-                    0, 1);
+        osd_message(_("No connection to the TVH server - hold red for settings"), 0, 1);
 }
 
 static void app_recordings(cJSON *list) {
@@ -1494,12 +1493,6 @@ static int live_ok(void) {
            (!hbbweb_active() || !hbbweb_takes(KEY_OK));
 }
 
-/* Green without HbbTV (in the live picture, layout "Standard"): short recordings, long
- * settings. With "HbbTV first", Green without HbbTV is simply recordings */
-static int live_green(int key) {
-    return !g_keys_hbbtv && key == KEY_GREEN && !hbbweb_active() && !tvf_overlay() && !recplay_active();
-}
-
 /* ---- Basic settings (settings page) ----
  * Stored in prefs; whatever is missing comes from the defaults here. "" = off. */
 #ifndef TVF_DEFAULT_TVH_HOST /* build option (CMake, local.env) */
@@ -1610,10 +1603,6 @@ static void app_noaccess(void) {
  * Otherwise not to TVF (that would differ depending on the keyset), only a
  * hint; Red without Red in the keyset restarts HbbTV as before */
 static void color_short(int key) {
-    if (live_green(key)) {
-        on_key(key); /* recordings */
-        return;
-    }
     if (hbbweb_active() && !tvf_overlay()) {
         if (hbbweb_key(key)) return;
         if (key != KEY_RED) {
@@ -1628,18 +1617,14 @@ static void color_short(int key) {
 }
 
 /* Colour key long: TVF (recordings, audio, teletext); Red long closes HbbTV,
- * with "HbbTV first" and no visible HbbTV: settings */
+ * and without a visible HbbTV it opens the settings - in both key layouts */
 static void color_long(int key) {
-    if (live_green(key)) {
-        open_settings();
-        return;
-    }
     if (key == KEY_RED && hbbweb_active()) {
         hbbweb_close("red long");
         osd_message(_("HbbTV closed"), 2000, 0);
         return;
     }
-    if (key == KEY_RED && g_keys_hbbtv && !tvf_overlay()) {
+    if (key == KEY_RED && !tvf_overlay()) {
         open_settings();
         return;
     }
@@ -1729,13 +1714,13 @@ static void on_sdl_key(const SDL_KeyboardEvent *k, int down) {
         }
         return;
     }
-    /* Colour keys with HbbTV open (no TVF window): short = app, long = TVF;
-     * Green in the live picture: short recordings, long settings. Red long: SCANCODE_RED_LONG.
+    /* Colour keys with HbbTV open (no TVF window): short = app, long = TVF.
+     * Red long: SCANCODE_RED_LONG.
      * Short on release, long after COLOR_LONG_MS (color_hold_tick) or on
      * the first repeat; whether the key belongs here is decided by the
      * first press */
     if (key_is_color(key) &&
-        ((down && !k->repeat && ((hbbweb_active() && !tvf_overlay()) || live_green(key))) ||
+        ((down && !k->repeat && hbbweb_active() && !tvf_overlay()) ||
          app.held_color == key)) {
         uint32_t now = SDL_GetTicks();
         if (down) {
