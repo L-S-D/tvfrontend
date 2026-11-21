@@ -231,7 +231,7 @@ fixed proxy).
 
 Which tags reach TVF:
 
-- **tvheadend fork `L-S-D/tvheadend`** (branch `pr/htsp-internal-tags`, in `v3/*`):
+- **tvheadend fork `hctlnet/tvheadend`** (in `main`):
   make the tag *internal*. TVF asks for internal tags (`internalTags` in
   `enableAsyncMetadata`, `htsp.c`); tvh sends them only to clients that ask, so Kodi
   and other HTSP clients see neither the tag nor any change to their channels and
@@ -246,7 +246,7 @@ stream of type `HBBTV` whose packets are the raw AIT sections (without CRC);
 `sidedata.c` parses them (`local:ttx/hbbtv`).
 
 HbbTV stream events (DSM-CC stream descriptors, ETSI TS 102 809): the tvheadend
-fork (`L-S-D/tvheadend`, branch `pr/htsp-stream-events`, in `v3/*`) sends a PID of
+fork (`hctlnet/tvheadend`, in `main`) sends a PID of
 stream type 0x0C as a stream of type `DSMCC` whose packets are the raw stream
 descriptor sections (table 0x3D). `sidedata.c` passes each new version of a stream
 event once to the page (`__tvfSE`, `hbbweb.c`), the OIPF replacement to the
@@ -258,7 +258,7 @@ events too. With a plain tvheadend no events arrive, as before.
 
 Scrambled channel without a key: tvheadend holds the start until audio/video can be
 decoded, so a client sees nothing - no start, no status, no AIT. TVF asks the fork
-(`L-S-D/tvheadend`, branch `pr/htsp-scrambled`, in `v3/*`) with the subscribe options
+(`hctlnet/tvheadend`, in `main`) with the subscribe options
 `earlyStart` and `reportNoAccess` (a plain tvheadend ignores them): the start comes after
 a second anyway (AIT and teletext run, the HbbTV app starts), its CA streams carry their
 CA system (`caid`, `caname`), and the status "No access" comes with subscriptionError

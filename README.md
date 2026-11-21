@@ -126,11 +126,10 @@ a channel on such a warm mux starts the stream at the last keyframe from the buf
 waiting for the next one, and the picture comes up in about half a second (LG G4, satellite). TVF
 needs no setting for it.
 
-Use the branch [`v3/tvf`](https://github.com/L-S-D/tvheadend/tree/v3/tvf) of
-[L-S-D/tvheadend](https://github.com/L-S-D/tvheadend): current upstream tvheadend, our open pull
-requests (among them the HTSP extensions that save TVF its PMT lookup) and instant zapping. It builds
-like tvheadend itself; instant zapping is compiled in unless you pass `--disable-dvbbuffer`. The
-fork's `master` is `v3/all`, which adds further work on top (Neumo DVB driver, DAB, T2-MI).
+Use the `main` branch of [hctlnet/tvheadend](https://github.com/hctlnet/tvheadend): current
+upstream tvheadend with our additions, among them the HTSP extensions that save TVF its PMT lookup,
+instant zapping, DAB radio and T2-MI from satellite and the Neumo DVB driver API. It builds like
+tvheadend itself; instant zapping is compiled in unless you pass `--disable-dvbbuffer`.
 
 In tvheadend:
 
@@ -154,8 +153,8 @@ TVF is cross-compiled for the TV with the webOS buildroot toolchain.
 2. Install cmake (3.13 or newer) and git.
 3. Build and package:
 
-       git clone --recurse-submodules https://github.com/L-S-D/TVF.git
-       cd TVF
+       git clone --recurse-submodules https://github.com/hctlnet/tvfrontend.git
+       cd tvfrontend
        ./build.sh        # -> build/tvf
        ./package.sh      # -> com.lsd.tvf_<version>_arm.ipk
 
